@@ -17,7 +17,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - name: Syntax
-        run: for f in server/*.mjs public/*.js public/lib/*.js public/pages/*.js; do node --check "$f"; done
+        run: for f in server/*.mjs public/*.js public/lib/*.js public/pages/*.js lab/*.mjs; do node --check "$f"; done
       - name: Tests
         run: npm test
 

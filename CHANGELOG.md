@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.1.0] - 2026-10-11
+
+- Shield: a live view of who is knocking on Traefik. Every source comes in from its own direction; what Traefik stops at the edge (rate limits, allow lists, the CrowdSec plugin, auth, unknown hosts) breaks on the shield, what gets through reaches the core.
+- Attacks are detected against the usual traffic, followed live and kept afterwards with their sources, targets, countries and timeline. The webhook hears when one starts and ends.
+- Loudest sources over 5 or 15 minutes, with what they asked for, their user agent and a ready command to ban them.
+- CrowdSec: active bans, why and until when, read with a bouncer key that can only read decisions. The installer offers to set this up when it finds CrowdSec.
+- A health check for Traefik seeing Cloudflare's addresses instead of the visitors'.
+- The country of each request when Traefik keeps Cloudflare's Cf-Ipcountry header.
+- `npm run attack` sends a fake attack at the lab.
+
 ## [1.0.0] - 2026-10-11
 
 First release.

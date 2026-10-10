@@ -1,6 +1,6 @@
 {
   "name": "enodia",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A beautiful, fast dashboard for Traefik: routes, services, live traffic, access logs, certificates and health checks. One small container, no database.",
   "type": "module",
   "license": "MIT",
@@ -13,6 +13,7 @@
     "start": "node server/index.mjs",
     "dev": "node --watch server/index.mjs",
     "test": "node --test",
-    "lab": "node lab/run.mjs"
+    "lab": "node lab/run.mjs",
+    "attack": "node lab/attack.mjs"
   }
 }

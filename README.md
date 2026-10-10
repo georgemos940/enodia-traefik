@@ -69,6 +69,11 @@ metrics:
 accessLog:
   filePath: /logs/access.log
   format: json
+  fields:
+    headers:
+      names:
+        User-Agent: keep      # who is calling, for Shield and the log explorer
+        Cf-Ipcountry: keep    # behind Cloudflare: their country
 ```
 
 </details>
@@ -139,6 +144,16 @@ Images are published for `linux/amd64`, `linux/arm64`, `linux/arm/v7` and `linux
 - Entry points with their ports, TLS, redirections and the routers on each.
 - A topology map from entry points through routers and middlewares to services and their servers.
 
+**Shield: see who is knocking**
+
+![Shield during an attack](docs/shield.gif)
+
+- Every source address comes in from its own direction. What Traefik stops at the edge (rate limits, IP allow lists, the CrowdSec plugin, auth, hosts no router knows) breaks on the shield; what gets through reaches the core.
+- Attacks are spotted against this Traefik's own normal traffic, shown as they happen, kept afterwards with their sources, targets, countries and timeline, and sent to your webhook when they start and end.
+- The loudest sources over 5 or 15 minutes, what each one asked for and with which user agent, and a ready `cscli` command to ban one.
+- CrowdSec's bans, read with a bouncer key that can only read: who was banned, by which scenario, until when, as they happen.
+- Behind Cloudflare, it tells you when Traefik sees Cloudflare's addresses instead of your visitors'.
+
 **See what is happening**
 - Live traffic per entry point, router and service: requests per second, status classes, latency p50/p95/p99, bandwidth, open connections.
 - An access log explorer: filter by status, method, router, client or path, follow it live, and see the top clients, paths and slowest requests.
@@ -183,7 +198,11 @@ Everything is an environment variable. The installer writes them to `.env` in it
 | `ENODIA_SECRET` | random per start | Signs sessions; set it to keep people logged in across restarts |
 | `ENODIA_SESSION_HOURS` | `12` | |
 | `ENODIA_INSTANCE_NAME` | | Shown in the header, handy with several Traefiks |
-| `ENODIA_WEBHOOK_URL` | | Called for new critical findings |
+| `ENODIA_WEBHOOK_URL` | | Called for new critical findings and attacks |
+| `ENODIA_ATTACK_RPS` | worked out | Requests a second that always count as an attack; by default it follows this Traefik's normal traffic |
+| `ENODIA_ATTACK_ALERTS` | `true` | Send attacks to the webhook |
+| `CROWDSEC_LAPI_URL` | | CrowdSec's Local API, e.g. `http://crowdsec:8080` |
+| `CROWDSEC_BOUNCER_KEY` | | A key of Enodia's own: `cscli bouncers add enodia` |
 | `ENODIA_CERT_WARN_DAYS`, `ENODIA_CERT_CRITICAL_DAYS` | `21`, `7` | |
 | `ENODIA_POLL_SECONDS` | `5` | How often Traefik is read |
 | `ENODIA_HISTORY_MINUTES` | `60` | Traffic history kept in memory |
@@ -223,6 +242,8 @@ npm run lab
 ```
 
 The lab downloads Traefik (checksum verified), starts it with a set of demo backends, generates traffic and serves Enodia on http://localhost:3000, so every page has something to show. `npm test` runs the tests. There are no dependencies.
+
+`npm run attack` sends a fake attack at the lab: a botnet of made-up addresses brute-forcing a login page, probing for files and flooding the shop, with a CrowdSec stand-in banning the loudest of them. Open Shield while it runs.
 
 `lab/v2/` holds the same setup for Traefik v2.
 
