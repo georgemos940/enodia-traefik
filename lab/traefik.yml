@@ -3,11 +3,16 @@
 # expire at different times. Run it with `npm run lab` (see lab/README.md).
 
 entryPoints:
+  # forwardedHeaders.insecure is for the lab only: it lets lab/attack.mjs pose as many clients
   web:
     address: ":8081"
+    forwardedHeaders:
+      insecure: true
   websecure:
     address: ":8443"
     http3: {}
+    forwardedHeaders:
+      insecure: true
   traefik:
     address: ":8090"
   metrics:
@@ -39,6 +44,7 @@ accessLog:
       names:
         User-Agent: keep
         Referer: keep
+        Cf-Ipcountry: keep
 
 log:
   level: INFO

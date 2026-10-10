@@ -48,6 +48,11 @@ http:
       middlewares: [does-not-exist]
       tls:
         certResolver: letsencrypt
+    login:
+      rule: "Host(`login.localhost`)"
+      entryPoints: [web]
+      service: admin
+      middlewares: [login-limit, bouncer]
     dashboard:
       rule: "Host(`traefik.localhost`)"
       entryPoints: [web]
@@ -97,6 +102,19 @@ http:
       basicAuth:
         users:
           - "admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
+    # stands in for the CrowdSec plugin: only the office range gets through to the login page
+    bouncer:
+      ipAllowList:
+        sourceRange: ["192.0.2.0/24", "127.0.0.1/32"]
+        ipStrategy:
+          depth: 1
+    login-limit:
+      rateLimit:
+        average: 5
+        burst: 10
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
     office-only:
       ipAllowList:
         sourceRange: ["127.0.0.1/32", "10.0.0.0/8", "::1/128"]

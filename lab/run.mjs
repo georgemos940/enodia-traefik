@@ -72,6 +72,7 @@ fs.mkdirSync(path.join(here, 'logs'), { recursive: true });
 certs();
 run('backends', process.execPath, ['backends.mjs']);
 run('traefik', traefik, ['--configFile=traefik.yml']);
+run('crowdsec', process.execPath, ['crowdsec.mjs']);
 setTimeout(() => run('traffic', process.execPath, ['traffic.mjs', process.env.LAB_RPS || '25']), 2500);
 setTimeout(() => {
   process.env.TRAEFIK_API_URL ??= 'http://127.0.0.1:8090';
@@ -79,6 +80,8 @@ setTimeout(() => {
   process.env.TRAEFIK_ACCESS_LOG ??= path.join(here, 'logs', 'access.log');
   process.env.ENODIA_DATA_DIR ??= path.join(here, '.enodia-data');
   process.env.ENODIA_INSTANCE_NAME ??= 'Lab';
+  process.env.CROWDSEC_LAPI_URL ??= 'http://127.0.0.1:8095';
+  process.env.CROWDSEC_BOUNCER_KEY ??= 'lab';
   run('enodia', process.execPath, ['--watch', path.join(here, '..', 'server', 'index.mjs')], path.join(here, '..'));
-  console.log('[lab] open http://localhost:3000');
+  console.log('[lab] open http://localhost:3000  ·  npm run attack for a fake attack on the Shield page');
 }, 3000);
