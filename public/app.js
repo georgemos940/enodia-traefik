@@ -126,7 +126,7 @@ function layout() {
       nav,
       h('div', { class: 'side-foot' },
         h('span', { class: 'grow tiny' }, `v${meta.version ?? ''}`, store.state?.version ? ` · Traefik ${store.state.version.Version}` : ''),
-        h('a', { class: 'btn sm ghost icon-only', href: 'https://github.com/georgemos940/enodia', target: '_blank', rel: 'noreferrer', title: 'Enodia on GitHub' }, icon('github', { size: 15 })),
+        h('a', { class: 'btn sm ghost icon-only', href: 'https://github.com/georgemos940/enodia-traefik', target: '_blank', rel: 'noreferrer', title: 'Enodia on GitHub' }, icon('github', { size: 15 })),
         meta.auth === 'password' ? h('button', { class: 'btn sm ghost icon-only', title: 'Log out', onclick: async () => { await api('logout', { method: 'POST' }).catch(() => {}); location.reload(); } }, icon('logout', { size: 15 })) : null)),
     h('div', { class: 'main' },
       h('header', { class: 'topbar' },
@@ -145,7 +145,7 @@ function layout() {
 // ── updates ──────────────────────────────────────────────────────────────────
 
 let updatePill;
-const REPO = 'georgemos940/enodia';
+const REPO = 'georgemos940/enodia-traefik';
 const INSTALL_SH = `https://raw.githubusercontent.com/${REPO}/main/install.sh`;
 
 /** The update command for how this copy was installed. */
@@ -154,7 +154,7 @@ function updateSteps(method) {
     script: [['Update with the installer (keeps your settings)', `curl -fsSL ${INSTALL_SH} | bash -s -- update`]],
     docker: [
       ['Docker Compose: pull the new image and recreate', 'docker compose pull enodia && docker compose up -d enodia'],
-      ['Plain docker run: pull, then start it again with the same options', `docker pull ghcr.io/${REPO}:latest`],
+      ['Plain docker run: pull, then start it again with the same options', 'docker pull ghcr.io/georgemos940/enodia:latest'],
     ],
     source: [['From a git checkout: fetch the new version and restart', 'git pull --ff-only && npm start']],
     kubernetes: [['Kubernetes: restart the deployment, which pulls the new image', 'kubectl -n traefik rollout restart deployment/enodia']],

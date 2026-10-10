@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Enodia installer: sets Enodia up next to your Traefik, or Traefik and Enodia together if you have none.
 #
-#   curl -fsSL https://raw.githubusercontent.com/georgemos940/enodia/main/install.sh | bash
-#   curl -fsSL https://raw.githubusercontent.com/georgemos940/enodia/main/install.sh | bash -s -- update
-#   curl -fsSL https://raw.githubusercontent.com/georgemos940/enodia/main/install.sh | bash -s -- uninstall [--purge]
+#   curl -fsSL https://raw.githubusercontent.com/georgemos940/enodia-traefik/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/georgemos940/enodia-traefik/main/install.sh | bash -s -- update
+#   curl -fsSL https://raw.githubusercontent.com/georgemos940/enodia-traefik/main/install.sh | bash -s -- uninstall [--purge]
 #
 # It works out the rest:
 #   Traefik in Docker (flags, env, traefik.yml or .toml)  -> Enodia joins its network
@@ -25,8 +25,8 @@
 #   ASSUME_YES=1 / --yes             never ask, take the defaults
 set -euo pipefail
 
-REPO="georgemos940/enodia"
-IMAGE="ghcr.io/${REPO}"
+REPO="georgemos940/enodia-traefik"
+IMAGE="ghcr.io/georgemos940/enodia"
 RAW="https://raw.githubusercontent.com/${REPO}/main/install.sh"
 
 ACTION="install"; PURGE=""

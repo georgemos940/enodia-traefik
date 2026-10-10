@@ -5,8 +5,8 @@
   "type": "module",
   "license": "MIT",
   "author": "George Mos (https://github.com/georgemos940)",
-  "repository": { "type": "git", "url": "https://github.com/georgemos940/enodia.git" },
-  "homepage": "https://github.com/georgemos940/enodia#readme",
+  "repository": { "type": "git", "url": "https://github.com/georgemos940/enodia-traefik.git" },
+  "homepage": "https://github.com/georgemos940/enodia-traefik#readme",
   "keywords": ["traefik", "dashboard", "reverse-proxy", "monitoring", "observability", "docker", "homelab", "self-hosted"],
   "engines": { "node": ">=20" },
   "scripts": {

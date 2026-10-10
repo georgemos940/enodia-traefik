@@ -3,7 +3,7 @@ FROM node:22-alpine
 
 LABEL org.opencontainers.image.title="Enodia" \
       org.opencontainers.image.description="A dashboard for Traefik: routes, services, live traffic, access logs, certificates and health checks" \
-      org.opencontainers.image.source="https://github.com/georgemos940/enodia" \
+      org.opencontainers.image.source="https://github.com/georgemos940/enodia-traefik" \
       org.opencontainers.image.licenses="MIT"
 
 ENV NODE_ENV=production \

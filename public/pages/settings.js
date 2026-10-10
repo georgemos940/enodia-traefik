@@ -6,9 +6,9 @@ import { pageHead, timeAgo, toast } from '../lib/components.js';
 import { ms, plural } from '../lib/format.js';
 import { codeBlock, ticon } from '../lib/tools-ui.js';
 
-const REPO_URL = 'https://github.com/georgemos940/enodia';
+const REPO_URL = 'https://github.com/georgemos940/enodia-traefik';
 const DOCS = 'https://doc.traefik.io/traefik/';
-const INSTALL_SH = 'https://raw.githubusercontent.com/georgemos940/enodia/main/install.sh';
+const INSTALL_SH = 'https://raw.githubusercontent.com/georgemos940/enodia-traefik/main/install.sh';
 
 const yaml = (...l) => l.join('\n');
 
@@ -340,7 +340,7 @@ export default {
           h('p', {}, 'A Greek goddess of roads, crossroads and gateways, worshipped in Thessaly and later joined with Hecate. She was shown carrying two torches, and her shrines stood at city gates and in front of houses, where she watched who came and went.'),
           h('p', { class: 'muted' }, 'A reverse proxy stands in the same place: at the gate, where every request picks its road. Enodia holds the torch so you can see which way they went.'),
           h('div', { class: 'row wrap', style: { gap: '8px' } },
-            h('a', { class: 'btn sm', href: REPO_URL, target: '_blank', rel: 'noreferrer' }, icon('github', { size: 14 }), 'georgemos940/enodia'),
+            h('a', { class: 'btn sm', href: REPO_URL, target: '_blank', rel: 'noreferrer' }, icon('github', { size: 14 }), 'georgemos940/enodia-traefik'),
             h('span', { class: 'tiny muted' }, 'MIT licensed. Not affiliated with Traefik Labs.'))));
     }
 

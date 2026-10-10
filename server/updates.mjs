@@ -12,7 +12,7 @@ const pkg = JSON.parse(fs.readFileSync(path.resolve(here, '..', 'package.json'),
 
 const env = process.env;
 const enabled = env.ENODIA_UPDATE_CHECK !== 'false';
-const repo = env.ENODIA_UPDATE_REPO || 'georgemos940/enodia';
+const repo = env.ENODIA_UPDATE_REPO || 'georgemos940/enodia-traefik';
 const EVERY_MS = 6 * 3600_000;
 
 /** How this copy was installed: decides which update command the UI shows. */

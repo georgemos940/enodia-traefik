@@ -3,7 +3,7 @@
 #
 #   sudo useradd --system --home /opt/enodia --shell /usr/sbin/nologin enodia
 #   sudo mkdir -p /opt/enodia/data /opt/enodia/app && cd /opt/enodia
-#   curl -fsSL https://codeload.github.com/georgemos940/enodia/tar.gz/refs/heads/main | sudo tar -xz --strip-components=1 -C app
+#   curl -fsSL https://codeload.github.com/georgemos940/enodia-traefik/tar.gz/refs/heads/main | sudo tar -xz --strip-components=1 -C app
 #   sudo cp app/examples/enodia.service /etc/systemd/system/ && sudo nano /opt/enodia/.env
 #   sudo chown -R enodia: /opt/enodia/data /opt/enodia/.env
 #   sudo systemctl enable --now enodia

@@ -29,7 +29,7 @@ It reads Traefik's API, its Prometheus metrics and its access log. It never chan
 On the machine that runs Traefik:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/georgemos940/enodia/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/georgemos940/enodia-traefik/main/install.sh | bash
 ```
 
 The installer asks Traefik itself what it is: version, entry points, certificate resolvers, where the metrics and the access log are. It then picks the setup that fits:
@@ -46,7 +46,7 @@ The installer asks Traefik itself what it is: version, entry points, certificate
 It asks three things (a domain, a password, a name) and has an answer for each if you just press Enter. To skip the questions:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/georgemos940/enodia/main/install.sh \
+curl -fsSL https://raw.githubusercontent.com/georgemos940/enodia-traefik/main/install.sh \
   | bash -s -- --yes --domain=traefik.example.com --password=change-me
 ```
 
@@ -114,7 +114,7 @@ docker run -d --name enodia --network <traefik's network> \
 Node.js 20 or newer, no dependencies to install:
 
 ```sh
-git clone https://github.com/georgemos940/enodia && cd enodia
+git clone https://github.com/georgemos940/enodia-traefik && cd enodia-traefik
 TRAEFIK_API_URL=http://127.0.0.1:8080 ENODIA_PASSWORD=change-me npm start
 ```
 
@@ -200,7 +200,7 @@ When metrics and the access log are left unset, Enodia finds them: metrics on th
 Enodia checks GitHub for new releases and shows a notice in the top bar with the release notes and the exact command for how you installed it. Installed with the script:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/georgemos940/enodia/main/install.sh | bash -s -- update
+curl -fsSL https://raw.githubusercontent.com/georgemos940/enodia-traefik/main/install.sh | bash -s -- update
 ```
 
 It keeps your settings and history, waits for the new version to report healthy, and prints the old and new version. Pin a version with `--version=1.2.0`. With Compose: `docker compose pull enodia && docker compose up -d enodia`. On Kubernetes: `kubectl rollout restart deployment/enodia`.
