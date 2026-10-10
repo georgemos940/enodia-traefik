@@ -69,6 +69,7 @@ export function connect() {
     store.emit('ready');
   });
   source.addEventListener('state', (e) => { store.state = JSON.parse(e.data); touch(); store.emit('state', store.state); });
+  source.addEventListener('update', (e) => { const u = JSON.parse(e.data); if (store.meta) store.meta.updates = u; store.emit('update', u); });
   source.addEventListener('metrics', (e) => { store.metrics = JSON.parse(e.data); touch(); store.emit('metrics', store.metrics); });
   source.addEventListener('diagnostics', (e) => { const d = JSON.parse(e.data); store.findings = d.findings; store.score = d.score; touch(); store.emit('diagnostics', d); });
   source.addEventListener('history', (e) => { const list = JSON.parse(e.data); store.history.unshift(...list.reverse()); store.history.length = Math.min(store.history.length, 500); touch(); store.emit('history', list); });

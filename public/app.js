@@ -2,7 +2,8 @@
 import { h, icon, brandMark, $ } from './lib/dom.js';
 import { store, connect, api, all } from './lib/store.js';
 import { rate, split } from './lib/format.js';
-import { hrefFor, navigate, modal, toast } from './lib/components.js';
+import { hrefFor, navigate, modal, toast, copyButton, badge } from './lib/components.js';
+import { markdown } from './lib/markdown.js';
 import { PAGES } from './pages/index.js';
 
 const root = $('#root');
@@ -67,7 +68,7 @@ function counts() {
     services: [all('services').length, bad('service') ? 'bad' : ''],
     middlewares: [all('middlewares').length, bad('middleware') ? 'bad' : ''],
     entrypoints: [st.entrypoints?.length ?? 0, ''],
-    certificates: [store.metrics?.gauges ? undefined : undefined, ''],
+    certificates: store.metrics?.certs?.warn ? [store.metrics.certs.warn, store.metrics.certs.critical ? 'bad' : 'warn'] : [store.metrics?.certs?.total || undefined, ''],
     health: crit ? [crit, 'bad'] : warn ? [warn, 'warn'] : [0, ''],
     changes: [store.history.length || undefined, ''],
   };
@@ -132,18 +133,85 @@ function layout() {
         h('button', { class: 'btn ghost icon-only menu-btn', onclick: () => appEl.classList.toggle('nav-open'), 'aria-label': 'Menu' }, icon('menu')),
         crumbsEl,
         h('div', { class: 'spacer' }),
+        updatePill = h('span', { class: 'update-slot' }),
         livePill,
         h('button', { class: 'search-btn', onclick: openPalette, 'aria-label': 'Search' }, icon('search', { size: 15 }), h('span', { class: 'label' }, 'Search routers, services…'), h('span', { class: 'kbd' }, 'Ctrl K')),
         h('button', { class: 'btn ghost icon-only', onclick: toggleTheme, title: 'Theme', 'aria-label': 'Theme' }, icon(theme === 'dark' ? 'sun' : 'moon'))),
       pageEl));
   root.replaceChildren(appEl);
+  renderUpdate();
+}
+
+// ── updates ──────────────────────────────────────────────────────────────────
+
+let updatePill;
+const REPO = 'georgemos940/enodia';
+const INSTALL_SH = `https://raw.githubusercontent.com/${REPO}/main/install.sh`;
+
+/** The update command for how this copy was installed. */
+function updateSteps(method) {
+  const steps = {
+    script: [['Update with the installer (keeps your settings)', `curl -fsSL ${INSTALL_SH} | bash -s -- update`]],
+    docker: [
+      ['Docker Compose: pull the new image and recreate', 'docker compose pull enodia && docker compose up -d enodia'],
+      ['Plain docker run: pull, then start it again with the same options', `docker pull ghcr.io/${REPO}:latest`],
+    ],
+    source: [['From a git checkout: fetch the new version and restart', 'git pull --ff-only && npm start']],
+    kubernetes: [['Kubernetes: restart the deployment, which pulls the new image', 'kubectl -n traefik rollout restart deployment/enodia']],
+  };
+  return steps[method] ?? [...steps.script, ...steps.docker];
+}
+
+const dismissedKey = (v) => `enodia-update-dismissed-${v}`;
+const isDismissed = (v) => { try { return localStorage.getItem(dismissedKey(v)) === '1'; } catch { return false; } };
+
+function renderUpdate() {
+  if (!updatePill) return;
+  const u = store.meta?.updates;
+  const mine = u?.enodia?.newer ? u.enodia : null;
+  const theirs = u?.traefik?.newer ? u.traefik : null;
+  if (!mine && !theirs) { updatePill.replaceChildren(); return; }
+  if (mine && isDismissed(mine.latest) && !theirs) { updatePill.replaceChildren(); return; }
+  updatePill.replaceChildren(h('button', {
+    class: `update-pill ${mine && !isDismissed(mine.latest) ? 'hot' : ''}`.trim(),
+    title: mine ? `Enodia ${mine.latest} is out` : `Traefik ${theirs.latest} is out`,
+    onclick: openUpdate,
+  }, icon('download', { size: 14 }), h('span', { class: 'label' }, mine ? `Enodia ${mine.latest}` : `Traefik ${theirs.latest}`)));
+}
+
+function openUpdate() {
+  const u = store.meta?.updates ?? {};
+  const mine = u.enodia?.newer ? u.enodia : null;
+  const theirs = u.traefik?.newer ? u.traefik : null;
+  const method = store.meta?.install ?? 'unknown';
+  const cmd = (label, text) => h('div', { class: 'col', style: { gap: '6px' } },
+    h('div', { class: 'small muted' }, label),
+    h('div', { class: 'row', style: { gap: '6px' } }, h('pre', { class: 'json grow', style: { margin: '0', padding: '10px 12px', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' } }, text), copyButton(text, 'Copy the command')));
+  const { close } = modal(h('div', { style: { padding: '20px 22px', maxHeight: '78vh', overflow: 'auto' } },
+    h('div', { class: 'row', style: { marginBottom: '6px' } }, icon('download', { size: 20, cls: 'torch-text' }), h('h3', { style: { margin: '0' }, class: 'grow' }, mine ? `Enodia ${mine.latest} is available` : `Traefik ${theirs.latest} is available`),
+      h('button', { class: 'btn sm ghost icon-only', onclick: () => close() }, icon('x'))),
+    mine ? h('div', { class: 'col', style: { gap: '14px' } },
+      h('div', { class: 'row wrap' }, badge(`you run ${mine.current}`), badge(`latest ${mine.latest}`, 'torch'), mine.publishedAt ? h('span', { class: 'tiny muted' }, `released ${new Date(mine.publishedAt).toLocaleDateString()}`) : null,
+        mine.url ? h('a', { class: 'btn sm ghost', href: mine.url, target: '_blank', rel: 'noreferrer' }, 'Release page', icon('external', { size: 13 })) : null),
+      mine.notes ? h('div', { class: 'card', style: { padding: '4px 16px' } }, markdown(mine.notes)) : null,
+      h('div', { class: 'bold' }, 'How to update'),
+      ...updateSteps(method).map(([label, text]) => cmd(label, text)),
+      h('div', { class: 'tiny muted' }, 'Settings, history and your password stay as they are: they live in the environment and the data volume, not in the image. Want updates on their own? Run Watchtower, or a scheduled `install.sh update`.'),
+      h('div', { class: 'row' }, h('div', { class: 'grow' }), h('button', { class: 'btn sm ghost', onclick: () => { try { localStorage.setItem(dismissedKey(mine.latest), '1'); } catch { /* private window */ } renderUpdate(); close(); } }, 'Remind me at the next version'))) : null,
+    theirs ? h('div', { class: 'col', style: { gap: '10px', marginTop: mine ? '22px' : '0' } },
+      h('div', { class: 'bold' }, `Traefik ${theirs.latest} is out`),
+      h('div', { class: 'small muted' }, `This Traefik runs ${theirs.current}. Read the release notes first, then raise the image tag (for example traefik:v${theirs.latest}) and recreate the container.`),
+      theirs.url ? h('a', { class: 'btn sm', href: theirs.url, target: '_blank', rel: 'noreferrer' }, 'Traefik release notes', icon('external', { size: 13 })) : null) : null));
 }
 
 // ── routing ──────────────────────────────────────────────────────────────────
 
 async function route() {
-  const raw = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
-  const [path, qs] = raw.split('?');
+  // only the path is decoded here; the query stays raw so values may contain & and =
+  const raw = location.hash.replace(/^#\/?/, '');
+  const at = raw.indexOf('?');
+  const path = decodeURIComponent(at < 0 ? raw : raw.slice(0, at));
+  const qs = at < 0 ? undefined : raw.slice(at + 1);
   const page = PAGES.find((p) => (p.route ?? new RegExp(`^${p.id}$`)).test(path)) ?? PAGES[0];
   const params = (page.route ?? new RegExp(`^${page.id}$`)).exec(path)?.slice(1) ?? [];
   const key = `${page.id}|${path}|${qs ?? ''}`;
@@ -281,13 +349,25 @@ async function boot() {
     wired = true;
     store.on('ready', () => { if (!appEl || !document.body.contains(appEl)) { layout(); route(); } renderNav(); renderLive(); });
     store.on('state', () => { renderNav(); renderLive(); current?.view?.update?.('state', store.state); });
-    store.on('metrics', (d) => { renderLive(); current?.view?.update?.('metrics', d); });
+    let certKey = '';
+    store.on('metrics', (d) => {
+      renderLive();
+      const k = JSON.stringify(d?.certs ?? null);
+      if (k !== certKey) { certKey = k; renderNav(); }
+      current?.view?.update?.('metrics', d);
+    });
     store.on('diagnostics', (d) => { renderNav(); current?.view?.update?.('diagnostics', d); });
     store.on('logs', (d) => current?.view?.update?.('logs', d));
     store.on('history', (d) => { renderNav(); current?.view?.update?.('history', d); });
-    store.on('theme', () => { current?.view?.update?.('theme', theme); if (appEl) { const k = current?.key; current = null; layout(); if (k) route(); } });
+    // charts read colors when drawn, so the page is rebuilt in the new theme
+    store.on('theme', () => { if (appEl) { const k = current?.key; current?.view?.destroy?.(); current = null; layout(); if (k) route(); } });
     store.on('connection', (up) => { renderLive(); if (!up) toast('Connection to Enodia lost, reconnecting…', 'warn'); });
     store.on('unauthorized', () => showLogin(store.meta));
+    store.on('update', (u) => {
+      renderUpdate();
+      current?.view?.update?.('update', u);
+      if (u?.enodia?.newer && !isDismissed(u.enodia.latest)) toast(`Enodia ${u.enodia.latest} is available`, 'ok');
+    });
     window.addEventListener('hashchange', route);
   }
   connect();

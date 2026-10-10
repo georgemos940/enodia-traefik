@@ -207,13 +207,13 @@ export function kv(pairs) {
   return h('dl', { class: 'kv' }, ...pairs.filter(Boolean).flatMap(([k, v]) => [h('dt', {}, k), h('dd', {}, v ?? h('span', { class: 'faint' }, '—'))]));
 }
 
-/** JSON with colours. Masks values of keys that look like secrets. */
+/** JSON with colours. Masks string values under keys that look like secrets (objects are walked, not hidden). */
 export function jsonView(value, { mask = true } = {}) {
-  const SECRET = /pass|secret|token|users|key$|apikey|credential/i;
+  const SECRET = /password|passwd|secret|token|^users$|api.?key|credential|privatekey|^key$|authorization/i;
   const out = h('pre', { class: 'json' });
   const walk = (v, indent, key) => {
     const pad = '  '.repeat(indent);
-    if (mask && key && SECRET.test(key) && v !== null && v !== '' && typeof v !== 'boolean') return [h('span', { class: 'z' }, '"••••••"')];
+    if (mask && key && SECRET.test(key) && (typeof v === 'string' || typeof v === 'number') && v !== '') return [h('span', { class: 'z' }, '"••••••"')];
     if (v === null) return [h('span', { class: 'z' }, 'null')];
     if (typeof v === 'string') return [h('span', { class: 's' }, JSON.stringify(v))];
     if (typeof v === 'number') return [h('span', { class: 'n' }, String(v))];

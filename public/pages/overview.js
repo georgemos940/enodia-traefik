@@ -151,7 +151,7 @@ export default {
     function paintFindings() {
       const f = (store.findings ?? []).filter((x) => x.severity !== 'info').slice(0, 5);
       if (!f.length) { findingsBox.replaceChildren(h('div', { class: 'empty' }, icon('ok', { size: 28, cls: 'ok-text' }), h('div', { class: 'empty-title' }, 'Nothing to fix'), h('div', { class: 'small' }, `${(store.findings ?? []).length} suggestions on the health page.`))); return; }
-      findingsBox.replaceChildren(...f.map((x) => h('a', { href: '#/health', class: 'row', style: { alignItems: 'flex-start', padding: '9px 10px', borderRadius: '10px', background: 'var(--panel-2)', border: '1px solid var(--line)' } },
+      findingsBox.replaceChildren(...f.map((x) => h('a', { href: `#/health?severity=${x.severity}&q=${encodeURIComponent(x.title)}`, class: 'row', style: { alignItems: 'flex-start', padding: '9px 10px', borderRadius: '10px', background: 'var(--panel-2)', border: '1px solid var(--line)' } },
         icon(x.severity === 'critical' ? 'xcircle' : 'alert', { size: 17, cls: x.severity === 'critical' ? 'bad-text' : 'warn-text' }),
         h('div', { class: 'grow col', style: { gap: '1px' } }, h('span', { class: 'bold small' }, x.title), h('span', { class: 'tiny muted', style: { overflow: 'hidden', display: '-webkit-box', '-webkit-line-clamp': '2', '-webkit-box-orient': 'vertical' } }, x.detail)))));
     }

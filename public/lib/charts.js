@@ -27,7 +27,8 @@ function niceMax(v) {
 /**
  * A live time-series chart.
  *   series: [{ key, label, color, values: [{ t, v }] }]
- *   opts: { height, stacked, area, yFormat(v), minMax, windowMs, tooltipTime }
+ *   opts: { height, stacked, area, yFormat(v), tipFormat(v), minMax, windowMs, tooltipTime }
+ *   (tipFormat defaults to yFormat; axis labels need to stay short, the tooltip has room)
  * Returns { el, update(series), destroy() }.
  */
 export function timeChart(series, opts = {}) {
@@ -154,7 +155,7 @@ export function timeChart(series, opts = {}) {
         }
         tip.replaceChildren(
           h('div', { class: 'small muted', style: { marginBottom: '4px' } }, new Date(nearest).toLocaleTimeString()),
-          ...rows.reverse().map(([sr, v]) => h('div', { class: 'tip-row' }, h('span', { class: 'row', style: { gap: '6px' } }, h('i', { class: 'sw', style: { background: sr.color } }), sr.label), h('b', {}, v === null || v === undefined ? '—' : o.yFormat(v)))));
+          ...rows.reverse().map(([sr, v]) => h('div', { class: 'tip-row' }, h('span', { class: 'row', style: { gap: '6px' } }, h('i', { class: 'sw', style: { background: sr.color } }), sr.label), h('b', {}, v === null || v === undefined ? '—' : (o.tipFormat ?? o.yFormat)(v)))));
         tip.hidden = false;
         const r = el.getBoundingClientRect();
         const tw = tip.offsetWidth || 160;
