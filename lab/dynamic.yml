@@ -1,0 +1,212 @@
+http:
+  routers:
+    shop:
+      rule: "Host(`shop.localhost`) || Host(`www.shop.localhost`)"
+      entryPoints: [websecure]
+      service: shop
+      middlewares: [security-headers, ratelimit, compress, www-redirect]
+      tls: {}
+    shop-http:
+      rule: "Host(`shop.localhost`) || Host(`www.shop.localhost`)"
+      entryPoints: [web]
+      service: noop@internal
+      middlewares: [to-https]
+    api:
+      rule: "Host(`api.localhost`) && PathPrefix(`/v1`)"
+      entryPoints: [websecure, web]
+      service: api-canary
+      middlewares: [strip-v1, security-headers, cors, retry]
+      tls: {}
+    api-health:
+      rule: "Host(`api.localhost`) && Path(`/health`) && Method(`GET`)"
+      priority: 1000
+      entryPoints: [web, websecure]
+      service: api
+      tls: {}
+    admin:
+      rule: "Host(`admin.localhost`) && !PathPrefix(`/public`)"
+      entryPoints: [web]
+      service: admin
+      middlewares: [admin-auth, office-only, security-headers]
+    blog:
+      rule: "Host(`blog.localhost`) && (PathPrefix(`/posts`) || Path(`/`)) && Header(`X-Preview`, `1`)"
+      entryPoints: [web]
+      service: blog
+      middlewares: [errors-page, inflight]
+    status:
+      rule: "Host(`status.localhost`)"
+      entryPoints: [web]
+      service: status-failover
+    mirror:
+      rule: "Host(`mirror.localhost`)"
+      entryPoints: [web]
+      service: shop-mirror
+    legacy:
+      rule: "Host(`legacy.localhost`)"
+      entryPoints: [websecure]
+      service: shop
+      middlewares: [does-not-exist]
+      tls:
+        certResolver: letsencrypt
+    dashboard:
+      rule: "Host(`traefik.localhost`)"
+      entryPoints: [web]
+      service: api@internal
+      middlewares: [office-only]
+
+  middlewares:
+    security-headers:
+      headers:
+        frameDeny: true
+        contentTypeNosniff: true
+        browserXssFilter: true
+        stsSeconds: 31536000
+        stsIncludeSubdomains: true
+        referrerPolicy: strict-origin-when-cross-origin
+        customResponseHeaders:
+          X-Powered-By: ""
+    ratelimit:
+      rateLimit:
+        average: 50
+        burst: 100
+        period: 1s
+    compress:
+      compress: {}
+    www-redirect:
+      redirectRegex:
+        regex: "^https?://www\\.shop\\.localhost/(.*)"
+        replacement: "https://shop.localhost/${1}"
+        permanent: true
+    to-https:
+      redirectScheme:
+        scheme: https
+        permanent: true
+    strip-v1:
+      stripPrefix:
+        prefixes: ["/v1"]
+    cors:
+      headers:
+        accessControlAllowMethods: [GET, POST, OPTIONS]
+        accessControlAllowOriginList: ["https://shop.localhost"]
+        accessControlMaxAge: 600
+    retry:
+      retry:
+        attempts: 3
+        initialInterval: 100ms
+    admin-auth:
+      basicAuth:
+        users:
+          - "admin:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/"
+    office-only:
+      ipAllowList:
+        sourceRange: ["127.0.0.1/32", "10.0.0.0/8", "::1/128"]
+    errors-page:
+      errors:
+        status: ["500-599"]
+        service: status-page
+        query: "/{status}.html"
+    inflight:
+      inFlightReq:
+        amount: 20
+    unused-buffer:
+      buffering:
+        maxRequestBodyBytes: 2000000
+
+  services:
+    shop:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:9101"
+          - url: "http://127.0.0.1:9102"
+        healthCheck:
+          path: /health
+          interval: 5s
+          timeout: 2s
+        sticky:
+          cookie:
+            name: shop_lb
+            httpOnly: true
+    api:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:9103"
+          - url: "http://127.0.0.1:9199"
+        healthCheck:
+          path: /health
+          interval: 5s
+          timeout: 2s
+    api-next:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:9104"
+    api-canary:
+      weighted:
+        services:
+          - name: api
+            weight: 9
+          - name: api-next
+            weight: 1
+    admin:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:9104"
+    blog:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:9105"
+    status-page:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:9105"
+    status-primary:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:9198"
+        healthCheck:
+          path: /health
+          interval: 5s
+    status-failover:
+      failover:
+        service: status-primary
+        fallback: status-page
+    shop-mirror:
+      mirroring:
+        service: shop
+        mirrors:
+          - name: api-next
+            percent: 10
+
+tcp:
+  routers:
+    postgres:
+      rule: "HostSNI(`*`)"
+      entryPoints: [postgres]
+      service: postgres
+  services:
+    postgres:
+      loadBalancer:
+        servers:
+          - address: "127.0.0.1:9110"
+
+udp:
+  routers:
+    dns:
+      entryPoints: [dns]
+      service: dns
+  services:
+    dns:
+      loadBalancer:
+        servers:
+          - address: "127.0.0.1:9153"
+
+tls:
+  certificates:
+    - certFile: ./certs/shop.crt
+      keyFile: ./certs/shop.key
+    - certFile: ./certs/api.crt
+      keyFile: ./certs/api.key
+  options:
+    default:
+      minVersion: VersionTLS12
+    modern:
+      minVersion: VersionTLS13

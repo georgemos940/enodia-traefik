@@ -1,0 +1,8 @@
+node_modules/
+lab/logs/
+lab/certs/
+lab/.enodia-data/
+lab/bin/
+*.log
+.DS_Store
+.env

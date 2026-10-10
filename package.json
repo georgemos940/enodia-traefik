@@ -1,0 +1,18 @@
+{
+  "name": "enodia",
+  "version": "1.0.0",
+  "description": "A beautiful, fast dashboard for Traefik: routes, services, live traffic, access logs, certificates and health checks. One small container, no database.",
+  "type": "module",
+  "license": "MIT",
+  "author": "George Mos (https://github.com/georgemos940)",
+  "repository": { "type": "git", "url": "https://github.com/georgemos940/enodia.git" },
+  "homepage": "https://github.com/georgemos940/enodia#readme",
+  "keywords": ["traefik", "dashboard", "reverse-proxy", "monitoring", "observability", "docker", "homelab", "self-hosted"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server/index.mjs",
+    "dev": "node --watch server/index.mjs",
+    "test": "node --test test/",
+    "lab": "node lab/run.mjs"
+  }
+}

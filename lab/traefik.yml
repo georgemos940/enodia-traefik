@@ -1,0 +1,49 @@
+# A small but varied Traefik for developing Enodia against: several entry points, HTTP, TCP and UDP
+# routers, every common middleware, a server that is down, a broken router and certificates that
+# expire at different times. Run it with `npm run lab` (see lab/README.md).
+
+entryPoints:
+  web:
+    address: ":8081"
+  websecure:
+    address: ":8443"
+    http3: {}
+  traefik:
+    address: ":8090"
+  metrics:
+    address: ":8092"
+  postgres:
+    address: ":15432"
+  dns:
+    address: ":15353/udp"
+
+api:
+  insecure: true
+  dashboard: true
+
+ping: {}
+
+metrics:
+  prometheus:
+    entryPoint: metrics
+    addEntryPointsLabels: true
+    addRoutersLabels: true
+    addServicesLabels: true
+
+accessLog:
+  filePath: "./logs/access.log"
+  format: json
+  fields:
+    headers:
+      defaultMode: drop
+      names:
+        User-Agent: keep
+        Referer: keep
+
+log:
+  level: INFO
+
+providers:
+  file:
+    filename: "./dynamic.yml"
+    watch: true

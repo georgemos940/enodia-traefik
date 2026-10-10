@@ -1,0 +1,296 @@
+// The shell: login, sidebar, top bar, routing, the command palette and keyboard shortcuts.
+import { h, icon, brandMark, $ } from './lib/dom.js';
+import { store, connect, api, all } from './lib/store.js';
+import { rate, split } from './lib/format.js';
+import { hrefFor, navigate, modal, toast } from './lib/components.js';
+import { PAGES } from './pages/index.js';
+
+const root = $('#root');
+
+// ── theme ────────────────────────────────────────────────────────────────────
+
+const THEME_KEY = 'enodia-theme';
+const storedTheme = () => { try { return localStorage.getItem(THEME_KEY); } catch { return null; } };
+let theme = storedTheme() || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+const applyTheme = () => { document.documentElement.dataset.theme = theme; document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'light' ? '#f4f5fa' : '#07080d'); };
+applyTheme();
+function toggleTheme() {
+  theme = theme === 'dark' ? 'light' : 'dark';
+  try { localStorage.setItem(THEME_KEY, theme); } catch { /* private window */ }
+  applyTheme();
+  store.emit('theme', theme);
+}
+
+// ── login ────────────────────────────────────────────────────────────────────
+
+function showLogin(meta) {
+  let err;
+  const input = h('input', { class: 'input', type: 'password', placeholder: 'Password', autocomplete: 'current-password', style: { width: '100%' } });
+  const submit = async (e) => {
+    e.preventDefault();
+    try {
+      await api('login', { method: 'POST', body: { password: input.value } });
+      boot();
+    } catch (x) {
+      err.textContent = x.message;
+      input.select();
+    }
+  };
+  root.replaceChildren(h('div', { class: 'login' },
+    h('form', { class: 'card login-card page-enter', onsubmit: submit },
+      brandMark(),
+      h('h1', { style: { margin: '6px 0 2px', fontSize: '22px' } }, 'Enodia'),
+      h('p', { class: 'muted', style: { marginTop: 0 } }, meta?.instanceName ? `Traefik · ${meta.instanceName}` : 'A dashboard for Traefik'),
+      h('div', { class: 'col', style: { marginTop: '18px' } }, input, h('button', { class: 'btn primary', type: 'submit' }, icon('lock', { size: 15 }), 'Log in'),
+        err = h('div', { class: 'bad-text small' })))));
+  setTimeout(() => input.focus(), 50);
+}
+
+// ── layout ───────────────────────────────────────────────────────────────────
+
+let nav;
+let crumbsEl;
+let livePill;
+let pageEl;
+let current = null;    // { page, view, path }
+let appEl;
+
+function counts() {
+  const st = store.state;
+  if (!st) return {};
+  const f = store.findings;
+  const bad = (kind) => f.filter((x) => x.severity === 'critical' && x.resource?.kind?.endsWith(kind)).length;
+  const crit = f.filter((x) => x.severity === 'critical').length;
+  const warn = f.filter((x) => x.severity === 'warning').length;
+  return {
+    routers: [all('routers').length, bad('router') ? 'bad' : ''],
+    services: [all('services').length, bad('service') ? 'bad' : ''],
+    middlewares: [all('middlewares').length, bad('middleware') ? 'bad' : ''],
+    entrypoints: [st.entrypoints?.length ?? 0, ''],
+    certificates: [store.metrics?.gauges ? undefined : undefined, ''],
+    health: crit ? [crit, 'bad'] : warn ? [warn, 'warn'] : [0, ''],
+    changes: [store.history.length || undefined, ''],
+  };
+}
+
+function renderNav() {
+  if (!nav) return;
+  const c = counts();
+  const active = current?.page.id;
+  const groups = [];
+  for (const p of PAGES) {
+    let g = groups.find((x) => x.name === p.group);
+    if (!g) groups.push(g = { name: p.group, pages: [] });
+    g.pages.push(p);
+  }
+  nav.replaceChildren(...groups.flatMap((g) => [
+    g.name ? h('div', { class: 'nav-group' }, g.name) : null,
+    ...g.pages.map((p) => {
+      const [n, tone] = c[p.id] ?? [];
+      return h('a', { href: `#/${p.id === 'overview' ? '' : p.id}`, class: p.id === active ? 'active' : '', onclick: () => appEl.classList.remove('nav-open') },
+        icon(p.icon, { size: 17 }), p.title,
+        n !== undefined && n !== 0 ? h('span', { class: `count ${tone}`.trim() }, String(n)) : null);
+    }),
+  ]));
+}
+
+function renderLive() {
+  if (!livePill) return;
+  const total = store.metrics?.latest?.total;
+  const ok = store.connected && store.state?.ok;
+  livePill.replaceChildren(
+    h('span', { class: `dot ${ok ? 'ok pulse' : store.connected ? 'bad pulse' : 'warn'}` }),
+    h('span', { class: 'label' }, !store.connected ? 'Reconnecting…' : !store.state?.ok ? 'Traefik unreachable' : 'Live'),
+    total ? h('span', { class: 'muted' }, `· ${rate(total.rps)} req/s`) : null);
+  livePill.title = store.state?.error ?? (store.state?.fetchedAt ? `Last poll ${new Date(store.state.fetchedAt).toLocaleTimeString()}` : '');
+}
+
+function setCrumbs(list) {
+  crumbsEl.replaceChildren(...list.flatMap(([label, href], i) => [
+    i ? h('span', { class: 'sep' }, '/') : null,
+    href && i < list.length - 1 ? h('a', { href }, label) : h('span', { class: 'here' }, label),
+  ]));
+  document.title = `${list[list.length - 1]?.[0] ?? 'Enodia'} · Enodia${store.meta?.instanceName ? ` · ${store.meta.instanceName}` : ''}`;
+}
+
+function layout() {
+  nav = h('nav', { class: 'nav' });
+  crumbsEl = h('div', { class: 'crumbs' });
+  livePill = h('div', { class: 'live' });
+  pageEl = h('main', { class: 'page' });
+  const meta = store.meta ?? {};
+  appEl = h('div', { class: 'app' },
+    h('aside', { class: 'side' },
+      h('a', { class: 'brand', href: '#/' }, brandMark(), h('div', { class: 'brand-name' }, 'Enodia', h('small', {}, meta.instanceName || 'for Traefik'))),
+      nav,
+      h('div', { class: 'side-foot' },
+        h('span', { class: 'grow tiny' }, `v${meta.version ?? ''}`, store.state?.version ? ` · Traefik ${store.state.version.Version}` : ''),
+        h('a', { class: 'btn sm ghost icon-only', href: 'https://github.com/georgemos940/enodia', target: '_blank', rel: 'noreferrer', title: 'Enodia on GitHub' }, icon('github', { size: 15 })),
+        meta.auth === 'password' ? h('button', { class: 'btn sm ghost icon-only', title: 'Log out', onclick: async () => { await api('logout', { method: 'POST' }).catch(() => {}); location.reload(); } }, icon('logout', { size: 15 })) : null)),
+    h('div', { class: 'main' },
+      h('header', { class: 'topbar' },
+        h('button', { class: 'btn ghost icon-only menu-btn', onclick: () => appEl.classList.toggle('nav-open'), 'aria-label': 'Menu' }, icon('menu')),
+        crumbsEl,
+        h('div', { class: 'spacer' }),
+        livePill,
+        h('button', { class: 'search-btn', onclick: openPalette, 'aria-label': 'Search' }, icon('search', { size: 15 }), h('span', { class: 'label' }, 'Search routers, services…'), h('span', { class: 'kbd' }, 'Ctrl K')),
+        h('button', { class: 'btn ghost icon-only', onclick: toggleTheme, title: 'Theme', 'aria-label': 'Theme' }, icon(theme === 'dark' ? 'sun' : 'moon'))),
+      pageEl));
+  root.replaceChildren(appEl);
+}
+
+// ── routing ──────────────────────────────────────────────────────────────────
+
+async function route() {
+  const raw = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
+  const [path, qs] = raw.split('?');
+  const page = PAGES.find((p) => (p.route ?? new RegExp(`^${p.id}$`)).test(path)) ?? PAGES[0];
+  const params = (page.route ?? new RegExp(`^${page.id}$`)).exec(path)?.slice(1) ?? [];
+  const key = `${page.id}|${path}|${qs ?? ''}`;
+  if (current?.key === key) return;
+  current?.view?.destroy?.();
+  current = { page, key, view: null };
+  renderNav();
+  setCrumbs([[page.title]]);
+  let mod;
+  try {
+    mod = (await page.load()).default;
+  } catch (e) {
+    pageEl.replaceChildren(h('div', { class: 'empty' }, icon('alert', { size: 28 }), h('div', { class: 'empty-title' }, 'This page failed to load'), h('div', { class: 'small' }, e.message)));
+    return;
+  }
+  if (current.key !== key) return; // navigated away while loading
+  const ctx = { params, query: new URLSearchParams(qs ?? ''), setCrumbs, page };
+  try {
+    const view = mod.render(ctx);
+    current.view = view;
+    const wrapper = h('div', { class: 'page-enter' }, view.el);
+    pageEl.replaceChildren(wrapper);
+    window.scrollTo({ top: 0 });
+  } catch (e) {
+    console.error(e);
+    pageEl.replaceChildren(h('div', { class: 'empty' }, icon('alert', { size: 28 }), h('div', { class: 'empty-title' }, 'This page hit an error'), h('div', { class: 'small mono' }, e.message)));
+  }
+}
+
+// ── command palette ──────────────────────────────────────────────────────────
+
+function paletteItems() {
+  const items = PAGES.map((p) => ({ group: 'Pages', label: p.title, icon: p.icon, hint: 'page', go: `#/${p.id === 'overview' ? '' : p.id}` }));
+  for (const r of all('routers')) items.push({ group: 'Routers', label: r.name, icon: 'router', hint: `${r.proto} router`, go: hrefFor('routers', r.name, r.proto), extra: r.rule ?? '' });
+  for (const s of all('services')) items.push({ group: 'Services', label: s.name, icon: 'service', hint: `${s.proto} ${s.type ?? 'service'}`, go: hrefFor('services', s.name, s.proto) });
+  for (const m of all('middlewares')) items.push({ group: 'Middlewares', label: m.name, icon: 'middleware', hint: m.type ?? 'middleware', go: hrefFor('middlewares', m.name, m.proto) });
+  for (const e of store.state?.entrypoints ?? []) items.push({ group: 'Entry points', label: e.name, icon: 'entrypoint', hint: e.address, go: hrefFor('entrypoints', e.name) });
+  items.push({ group: 'Actions', label: `Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`, icon: theme === 'dark' ? 'sun' : 'moon', hint: 'action', run: toggleTheme });
+  items.push({ group: 'Actions', label: 'Test which router answers a URL', icon: 'tester', hint: 'action', go: '#/tester' });
+  return items;
+}
+
+function score(item, q) {
+  if (!q) return 1;
+  const hay = `${item.label} ${item.extra ?? ''} ${item.hint ?? ''}`.toLowerCase();
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  let total = 0;
+  for (const w of words) {
+    const i = hay.indexOf(w);
+    if (i < 0) {
+      // letters in order, for "shpweb" -> "shop-web"
+      let j = 0;
+      for (const ch of hay) if (ch === w[j]) j++;
+      if (j < w.length) return 0;
+      total += 1;
+    } else total += i === 0 || /[\s@./-]/.test(hay[i - 1]) ? 10 : 5;
+  }
+  return total + (item.group === 'Pages' ? 2 : 0);
+}
+
+let paletteOpen = false;
+function openPalette() {
+  if (paletteOpen) return;
+  paletteOpen = true;
+  const items = paletteItems();
+  let sel = 0;
+  let shown = [];
+  const list = h('div', { class: 'palette-list' });
+  const input = h('input', { class: 'palette-input', placeholder: 'Search pages, routers, services, middlewares, entry points…', autocomplete: 'off', spellcheck: false });
+  const { close } = modal(h('div', {},
+    h('div', { style: { position: 'relative' } }, h('span', { style: { position: 'absolute', left: '17px', top: '18px' }, class: 'muted' }, icon('search', { size: 18 })), input),
+    list,
+    h('div', { class: 'palette-foot' }, h('span', {}, h('span', { class: 'kbd' }, '↑↓'), ' move'), h('span', {}, h('span', { class: 'kbd' }, 'Enter'), ' open'), h('span', {}, h('span', { class: 'kbd' }, 'Esc'), ' close'))),
+  { onclose: () => { paletteOpen = false; } });
+
+  const run = (item) => { close(); if (item.run) item.run(); else navigate(item.go); };
+  const paint = () => {
+    const q = input.value.trim();
+    shown = items.map((it) => [it, score(it, q)]).filter(([, sc]) => sc > 0).sort((a, b) => b[1] - a[1]).slice(0, 60).map(([it]) => it);
+    if (sel >= shown.length) sel = Math.max(0, shown.length - 1);
+    let lastGroup = null;
+    list.replaceChildren(...shown.flatMap((it, i) => {
+      const g = it.group !== lastGroup ? h('div', { class: 'palette-group' }, it.group) : null;
+      lastGroup = it.group;
+      const { base, provider } = split(it.label);
+      return [g, h('div', { class: `palette-item ${i === sel ? 'on' : ''}`, onmouseenter: () => { sel = i; mark(); }, onclick: () => run(it) },
+        icon(it.icon, { size: 16, cls: 'muted' }),
+        h('span', { class: 'ellipsis' }, it.group === 'Pages' || it.group === 'Actions' ? it.label : base, provider && it.group !== 'Pages' ? h('span', { class: 'faint tiny' }, `@${provider}`) : null),
+        h('span', { class: 'hint' }, it.hint ?? ''))];
+    }));
+    if (!shown.length) list.replaceChildren(h('div', { class: 'empty' }, 'Nothing matches'));
+  };
+  const mark = () => {
+    list.querySelectorAll('.palette-item').forEach((el, i) => el.classList.toggle('on', i === sel));
+    list.querySelectorAll('.palette-item')[sel]?.scrollIntoView({ block: 'nearest' });
+  };
+  input.addEventListener('input', () => { sel = 0; paint(); });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); sel = Math.min(shown.length - 1, sel + 1); mark(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); sel = Math.max(0, sel - 1); mark(); }
+    else if (e.key === 'Enter' && shown[sel]) { e.preventDefault(); run(shown[sel]); }
+  });
+  paint();
+  setTimeout(() => input.focus(), 30);
+}
+
+// ── keys ─────────────────────────────────────────────────────────────────────
+
+const GO = { o: '', r: 'routers', s: 'services', m: 'middlewares', e: 'entrypoints', t: 'traffic', l: 'logs', c: 'certificates', h: 'health', x: 'changes', p: 'topology' };
+let pendingG = 0;
+document.addEventListener('keydown', (e) => {
+  const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || e.target.isContentEditable;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openPalette(); return; }
+  if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === '/') { const f = pageEl?.querySelector('input[type="search"]'); if (f) { e.preventDefault(); f.focus(); } return; }
+  if (e.key === 'g') { pendingG = Date.now(); return; }
+  if (Date.now() - pendingG < 1200 && GO[e.key] !== undefined) { pendingG = 0; navigate(`#/${GO[e.key]}`); return; }
+  if (e.key === '?') {
+    modal(h('div', { style: { padding: '20px' } }, h('h3', { style: { marginTop: 0 } }, 'Keyboard shortcuts'),
+      h('div', { class: 'kv' }, ...[['Ctrl K', 'Search everything'], ['/', 'Filter the current list'], ...Object.entries(GO).map(([k, p]) => [`g ${k}`, `Go to ${p || 'overview'}`]), ['?', 'This help']]
+        .flatMap(([k, v]) => [h('dt', {}, h('span', { class: 'kbd' }, k)), h('dd', {}, v)]))));
+  }
+});
+
+// ── boot ─────────────────────────────────────────────────────────────────────
+
+let wired = false;
+async function boot() {
+  let session;
+  try { session = await api('session'); } catch { session = { mode: 'none', user: 'anyone' }; }
+  store.meta = session.meta;
+  if (session.mode !== 'none' && !session.user) return showLogin(session.meta);
+  root.replaceChildren(h('div', { class: 'login' }, h('div', { class: 'col', style: { alignItems: 'center' } }, brandMark('brand-mark spin-slow'), h('div', { class: 'muted small' }, 'Reaching Traefik…'))));
+  if (!wired) {
+    wired = true;
+    store.on('ready', () => { if (!appEl || !document.body.contains(appEl)) { layout(); route(); } renderNav(); renderLive(); });
+    store.on('state', () => { renderNav(); renderLive(); current?.view?.update?.('state', store.state); });
+    store.on('metrics', (d) => { renderLive(); current?.view?.update?.('metrics', d); });
+    store.on('diagnostics', (d) => { renderNav(); current?.view?.update?.('diagnostics', d); });
+    store.on('logs', (d) => current?.view?.update?.('logs', d));
+    store.on('history', (d) => { renderNav(); current?.view?.update?.('history', d); });
+    store.on('theme', () => { current?.view?.update?.('theme', theme); if (appEl) { const k = current?.key; current = null; layout(); if (k) route(); } });
+    store.on('connection', (up) => { renderLive(); if (!up) toast('Connection to Enodia lost, reconnecting…', 'warn'); });
+    store.on('unauthorized', () => showLogin(store.meta));
+    window.addEventListener('hashchange', route);
+  }
+  connect();
+}
+
+boot();
