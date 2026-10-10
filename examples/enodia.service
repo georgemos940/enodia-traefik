@@ -1,0 +1,36 @@
+# Enodia as a systemd service, without Docker (Node.js 20 or newer).
+# The installer writes this for you when Docker is missing; by hand:
+#
+#   sudo useradd --system --home /opt/enodia --shell /usr/sbin/nologin enodia
+#   sudo mkdir -p /opt/enodia/data /opt/enodia/app && cd /opt/enodia
+#   curl -fsSL https://codeload.github.com/georgemos940/enodia/tar.gz/refs/heads/main | sudo tar -xz --strip-components=1 -C app
+#   sudo cp app/examples/enodia.service /etc/systemd/system/ && sudo nano /opt/enodia/.env
+#   sudo chown -R enodia: /opt/enodia/data /opt/enodia/.env
+#   sudo systemctl enable --now enodia
+#
+# /opt/enodia/.env, for example:
+#   TRAEFIK_API_URL=http://127.0.0.1:8080
+#   TRAEFIK_ACCESS_LOG=/var/log/traefik/access.log
+#   ENODIA_PASSWORD=change-me
+#   ENODIA_DATA_DIR=/opt/enodia/data
+#   HOST=127.0.0.1
+
+[Unit]
+Description=Enodia, a dashboard for Traefik
+After=network-online.target traefik.service
+Wants=network-online.target
+
+[Service]
+User=enodia
+WorkingDirectory=/opt/enodia/app
+EnvironmentFile=/opt/enodia/.env
+ExecStart=/usr/bin/node server/index.mjs
+Restart=on-failure
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/enodia/data
+
+[Install]
+WantedBy=multi-user.target

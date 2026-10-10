@@ -7,6 +7,7 @@ LABEL org.opencontainers.image.title="Enodia" \
       org.opencontainers.image.licenses="MIT"
 
 ENV NODE_ENV=production \
+    ENODIA_INSTALL=docker \
     PORT=3000 \
     ENODIA_DATA_DIR=/data
 

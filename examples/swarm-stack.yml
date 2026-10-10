@@ -1,0 +1,41 @@
+# Enodia as a Docker Swarm stack next to a Traefik service.
+#
+#   printf 'change-me' | docker secret create enodia_password -
+#   docker stack deploy -c swarm-stack.yml enodia
+#
+# Traefik's overlay network must be the one below, and Traefik's API on (--api.insecure=true).
+
+services:
+  enodia:
+    image: ghcr.io/georgemos940/enodia:latest
+    environment:
+      TRAEFIK_API_URL: http://traefik:8080      # the Traefik service name on the overlay network
+      ENODIA_PASSWORD_FILE: /run/secrets/enodia_password
+      ENODIA_INSTANCE_NAME: swarm
+    secrets: [enodia_password]
+    volumes:
+      - enodia-data:/data
+    networks: [traefik-public]
+    deploy:
+      replicas: 1                               # history and sessions live in one process
+      placement:
+        constraints: [node.role == manager]     # keeps the data volume on one node
+      labels:
+        - traefik.enable=true
+        - traefik.swarm.network=traefik-public  # v3; Traefik v2 reads traefik.docker.network
+        - traefik.docker.network=traefik-public
+        - traefik.http.routers.enodia.rule=Host(`enodia.example.com`)
+        - traefik.http.routers.enodia.entrypoints=websecure
+        - traefik.http.routers.enodia.tls.certresolver=letsencrypt
+        - traefik.http.services.enodia.loadbalancer.server.port=3000
+
+networks:
+  traefik-public:
+    external: true
+
+secrets:
+  enodia_password:
+    external: true
+
+volumes:
+  enodia-data:

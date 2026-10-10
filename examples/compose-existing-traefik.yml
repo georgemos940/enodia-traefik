@@ -1,0 +1,41 @@
+# Enodia next to a Traefik that already runs in Docker, without the installer.
+#
+#   1. Put Enodia on a network Traefik is on (here "proxy"; docker network ls shows yours).
+#   2. Traefik needs its API on the internal port: --api.insecure=true (nothing gets published).
+#   3. Optional, for live traffic: --metrics.prometheus=true --metrics.prometheus.addRoutersLabels=true
+#   4. Optional, for the log explorer: --accesslog=true --accesslog.format=json --accesslog.filepath=/logs/access.log
+#      with /logs on a volume, mounted read-only below.
+#
+#   docker compose -f compose-existing-traefik.yml up -d
+
+services:
+  enodia:
+    image: ghcr.io/georgemos940/enodia:latest
+    container_name: enodia
+    restart: unless-stopped
+    environment:
+      TRAEFIK_API_URL: http://traefik:8080      # the Traefik container's name on the shared network
+      # TRAEFIK_METRICS_URL and TRAEFIK_ACCESS_LOG are found on their own; set them to override
+      ENODIA_PASSWORD: change-me
+      ENODIA_INSTANCE_NAME: production
+    volumes:
+      - enodia-data:/data
+      - traefik-logs:/traefik-logs:ro          # the volume Traefik writes access.log to
+    networks: [proxy]
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.routers.enodia.rule=Host(`enodia.example.com`)
+      - traefik.http.routers.enodia.entrypoints=websecure
+      - traefik.http.routers.enodia.tls.certresolver=letsencrypt
+      - traefik.http.services.enodia.loadbalancer.server.port=3000
+
+networks:
+  proxy:
+    external: true
+
+volumes:
+  enodia-data:
+  traefik-logs:
+    name: traefik_logs                          # docker volume ls shows the real name
+    external: true

@@ -1,0 +1,18 @@
+# A route to Enodia for a Traefik that uses the file provider instead of Docker labels.
+# Drop it in the directory your file provider watches; Traefik picks it up without a restart.
+
+http:
+  routers:
+    enodia:
+      rule: "Host(`enodia.example.com`)"
+      entryPoints: [websecure]
+      tls:
+        certResolver: letsencrypt
+      service: enodia
+      # middlewares: [office-only]   # stack your own auth or IP allow list on top of Enodia's login
+
+  services:
+    enodia:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:3000"   # http://enodia:3000 when Traefik shares a Docker network with it

@@ -1,0 +1,29 @@
+# What Enodia reads from Traefik, as static configuration. Merge these into your traefik.yml
+# (or use the flags in the comments). Only the API is required; the rest adds features.
+
+# Required: the API, served on the internal "traefik" entry point (:8080).
+# insecure only means "without a router": keep :8080 unpublished or bound to 127.0.0.1.
+api:
+  insecure: true                    # --api.insecure=true
+
+# Live traffic, latency and error rates.
+metrics:
+  prometheus:
+    addRoutersLabels: true          # --metrics.prometheus.addRoutersLabels=true
+    # entryPoint: metrics           # --metrics.prometheus.entryPoint=metrics (default: traefik)
+
+# The log explorer. JSON gives every field; the common format works with fewer.
+accessLog:
+  filePath: /logs/access.log        # --accesslog.filepath=/logs/access.log
+  format: json                      # --accesslog.format=json
+  bufferingSize: 100
+
+# traefik.toml equivalent:
+#
+#   [api]
+#     insecure = true
+#   [metrics.prometheus]
+#     addRoutersLabels = true
+#   [accessLog]
+#     filePath = "/logs/access.log"
+#     format = "json"

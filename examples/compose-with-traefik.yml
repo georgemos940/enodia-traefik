@@ -1,4 +1,5 @@
-# Enodia next to an existing Traefik.
+# Traefik and Enodia together, from scratch. For a Traefik you already run, see
+# compose-existing-traefik.yml, or let install.sh write it for you.
 #
 # What Traefik needs (static configuration, e.g. command flags):
 #   --api=true                                   the API Enodia reads (no need to publish it)

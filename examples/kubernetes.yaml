@@ -1,0 +1,111 @@
+# Enodia in Kubernetes, next to Traefik installed with the official Helm chart (or the one k3s ships).
+#
+# Everything goes in Traefik's namespace, so a Service can select Traefik's pods directly.
+# Helm installs usually use "traefik"; k3s uses "kube-system". Change the namespace everywhere below.
+#
+# Traefik's Helm values Enodia needs:
+#   additionalArguments:
+#     - --api.insecure=true          # the API on the pod's internal :8080 port, nothing gets exposed
+#   metrics:
+#     prometheus:
+#       addRoutersLabels: true       # traffic per router (metrics are on :9100 by default)
+#
+#   kubectl create secret generic enodia -n traefik \
+#     --from-literal=password="$(openssl rand -base64 18)" --from-literal=secret="$(openssl rand -hex 32)"
+#   kubectl apply -f kubernetes.yaml
+#
+# Access logs: Traefik logs to stdout in Kubernetes, so the log explorer stays off unless you write the
+# access log to a shared volume (accessLog.filePath) and mount it into Enodia at /traefik-logs.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik-api
+  namespace: traefik
+  labels: { app.kubernetes.io/name: enodia }
+spec:
+  selector:
+    app.kubernetes.io/name: traefik        # the labels on Traefik's pods
+  ports:
+    - { name: api, port: 8080, targetPort: 8080 }
+    - { name: metrics, port: 9100, targetPort: 9100 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: enodia
+  namespace: traefik
+  labels: { app.kubernetes.io/name: enodia }
+spec:
+  replicas: 1                              # history and sessions live in one process
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app.kubernetes.io/name: enodia }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: enodia }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: enodia
+          image: ghcr.io/georgemos940/enodia:latest
+          imagePullPolicy: Always          # a rollout restart picks up a new release
+          ports:
+            - { name: http, containerPort: 3000 }
+          env:
+            - { name: TRAEFIK_API_URL, value: "http://traefik-api:8080" }
+            - { name: TRAEFIK_METRICS_URL, value: "http://traefik-api:9100/metrics" }
+            - { name: ENODIA_INSTANCE_NAME, value: "kubernetes" }
+            - { name: ENODIA_INSTALL, value: "kubernetes" }
+            - name: ENODIA_PASSWORD
+              valueFrom: { secretKeyRef: { name: enodia, key: password } }
+            - name: ENODIA_SECRET
+              valueFrom: { secretKeyRef: { name: enodia, key: secret } }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+          # ready only while Traefik answers; alive as long as the process listens
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 30
+          resources:
+            requests: { cpu: 20m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+      volumes:
+        - name: data
+          emptyDir: {}                     # change history; use a PersistentVolumeClaim to keep it across restarts
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: enodia
+  namespace: traefik
+  labels: { app.kubernetes.io/name: enodia }
+spec:
+  selector: { app.kubernetes.io/name: enodia }
+  ports:
+    - { name: http, port: 3000, targetPort: http }
+---
+apiVersion: traefik.io/v1alpha1            # traefik.containo.us/v1alpha1 on Traefik v2
+kind: IngressRoute
+metadata:
+  name: enodia
+  namespace: traefik
+spec:
+  entryPoints: [websecure]
+  routes:
+    - match: Host(`enodia.example.com`)
+      kind: Rule
+      services:
+        - { name: enodia, port: 3000 }
+  tls: {}                                  # or certResolver: letsencrypt, or secretName: your-tls-secret
