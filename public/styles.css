@@ -127,6 +127,11 @@ code, pre, .mono { font-family: var(--mono); font-size: 12.5px; }
 [data-theme="light"] .side { background: rgba(255, 255, 255, 0.75); }
 .brand { display: flex; align-items: center; gap: 10px; padding: 6px 8px 16px; }
 .brand-mark { width: 34px; height: 34px; flex: none; }
+/* the torch while Enodia waits for Traefik */
+.flicker .mark-flame { transform-box: fill-box; transform-origin: 50% 100%; animation: flame 1.6s ease-in-out infinite; }
+.flicker .mark-glow { animation: glow 1.6s ease-in-out infinite; }
+@keyframes flame { 0%, 100% { transform: scale(1, 1); } 30% { transform: scale(0.96, 1.05); } 60% { transform: scale(1.03, 0.97); } }
+@keyframes glow { 0%, 100% { opacity: 0.8; } 50% { opacity: 1; } }
 .brand-name { font-weight: 750; letter-spacing: 0.02em; font-size: 17px; }
 .brand-name small { display: block; font-weight: 500; font-size: 11px; letter-spacing: 0.04em; color: var(--muted); text-transform: uppercase; }
 .nav { display: flex; flex-direction: column; gap: 2px; overflow-y: auto; flex: 1; padding-right: 2px; margin-right: -4px; scrollbar-width: thin; }

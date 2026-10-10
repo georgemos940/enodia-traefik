@@ -353,7 +353,7 @@ async function boot() {
   try { session = await api('session'); } catch { session = { mode: 'none', user: 'anyone' }; }
   store.meta = session.meta;
   if (session.mode !== 'none' && !session.user) return showLogin(session.meta);
-  root.replaceChildren(h('div', { class: 'login' }, h('div', { class: 'col', style: { alignItems: 'center' } }, brandMark('brand-mark spin-slow'), h('div', { class: 'muted small' }, 'Reaching Traefik…'))));
+  root.replaceChildren(h('div', { class: 'login' }, h('div', { class: 'col', style: { alignItems: 'center' } }, brandMark('brand-mark flicker'), h('div', { class: 'muted small' }, 'Reaching Traefik…'))));
   if (!wired) {
     wired = true;
     store.on('ready', () => { if (!appEl || !document.body.contains(appEl)) { layout(); route(); } renderNav(); renderLive(); });

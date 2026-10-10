@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="public/favicon.svg" width="72" height="72" alt="">
+  <img src="docs/wordmark.png" width="420" alt="Enodia">
 </p>
-
-<h1 align="center">Enodia</h1>
 
 <p align="center">
   A dashboard for Traefik: every route, live traffic, access logs, certificates and plain-language health checks.<br>

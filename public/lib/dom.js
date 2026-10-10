@@ -148,15 +148,18 @@ export function icon(name, { size = 16, cls = '', stroke = 1.8 } = {}) {
 }
 export const ICONS = Object.keys(P);
 
-/** The Enodia mark: a crossroads under two torches. */
-export function brandMark(cls = 'brand-mark') {
-  return s('svg', { class: cls, viewBox: '0 0 48 48', fill: 'none', 'aria-hidden': 'true' },
+// The torch over three roads. Drawn on a 1254-unit grid, the same as the artwork it was traced from.
+let markId = 0;
+export function brandMark(cls = 'brand-mark', { tile = true } = {}) {
+  const id = `em${++markId}`;
+  return s('svg', { class: cls, viewBox: tile ? '238 229 780 780' : '320 240 614 760', 'aria-hidden': 'true' },
     s('defs', {},
-      s('linearGradient', { id: 'eg-flame', x1: '0', y1: '0', x2: '0', y2: '1' }, s('stop', { offset: '0', 'stop-color': '#ffd479' }), s('stop', { offset: '1', 'stop-color': '#f57b24' })),
-      s('linearGradient', { id: 'eg-road', x1: '0', y1: '0', x2: '1', y2: '1' }, s('stop', { offset: '0', 'stop-color': '#b3a8ff' }), s('stop', { offset: '1', 'stop-color': '#6d5ce8' }))),
-    s('rect', { x: '2', y: '2', width: '44', height: '44', rx: '13', fill: '#11131f', stroke: 'rgba(179,168,255,.35)' }),
-    s('path', { d: 'M24 40V22M24 22 13 13M24 22l11-9', stroke: 'url(#eg-road)', 'stroke-width': '3.2', 'stroke-linecap': 'round' }),
-    s('circle', { cx: '24', cy: '22', r: '3.4', fill: '#11131f', stroke: 'url(#eg-road)', 'stroke-width': '2.4' }),
-    s('path', { d: 'M13 13c-2.4-2-2-4.8.2-6.8.2 1.6 1.4 2.2 2.2 1.4.8 1.8.3 4-2.4 5.4z', fill: 'url(#eg-flame)' }),
-    s('path', { d: 'M35 13c2.4-2 2-4.8-.2-6.8-.2 1.6-1.4 2.2-2.2 1.4-.8 1.8-.3 4 2.4 5.4z', fill: 'url(#eg-flame)' }));
+      s('radialGradient', { id: `${id}g`, cx: '628', cy: '440', r: '190', gradientUnits: 'userSpaceOnUse' },
+        s('stop', { offset: '0', 'stop-color': '#ff9f1a', 'stop-opacity': '.55' }), s('stop', { offset: '.55', 'stop-color': '#ff8a00', 'stop-opacity': '.18' }), s('stop', { offset: '1', 'stop-color': '#ff8a00', 'stop-opacity': '0' })),
+      s('linearGradient', { id: `${id}f`, x1: '0', y1: '0', x2: '0', y2: '1' }, s('stop', { offset: '0', 'stop-color': '#ffc233' }), s('stop', { offset: '1', 'stop-color': '#f9a114' }))),
+    tile ? s('rect', { x: '238', y: '229', width: '780', height: '780', rx: '190', fill: '#070914', stroke: 'rgba(122,114,247,.35)', 'stroke-width': '14' }) : null,
+    s('circle', { class: 'mark-glow', cx: '628', cy: '440', r: '190', fill: `url(#${id}g)` }),
+    s('path', { class: 'mark-flame', fill: `url(#${id}f)`, 'fill-rule': 'evenodd', d: 'M633 260C651 276 676 305 676 352C676 365 673 372 669 378C700 397 720 428 720 465C720 512 680 545 628 545C577 545 530 510 530 458C530 410 562 381 595 350C618 328 640 300 633 260ZM657 383C624 400 588 433 588 480C588 512 604 532 616 541C630 532 640 516 637 497C634 478 624 468 628 446C631 425 645 400 657 383Z' }),
+    s('path', { fill: '#7a72f7', d: 'M530 562H724V568C724 596 702 617 676 617H578C552 617 530 596 530 568ZM601 637H653V954A26 26 0 0 1 601 954Z' }),
+    s('path', { d: 'M362 600L512 694Q555 721 555 772V887M892 600L742 694Q699 721 699 772V887', fill: 'none', stroke: '#7a72f7', 'stroke-width': '52', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
 }
