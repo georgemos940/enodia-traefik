@@ -16,7 +16,12 @@ metrics:
 accessLog:
   filePath: /logs/access.log        # --accesslog.filepath=/logs/access.log
   format: json                      # --accesslog.format=json
-  bufferingSize: 100
+  fields:
+    headers:
+      defaultMode: drop
+      names:
+        User-Agent: keep            # --accesslog.fields.headers.names.User-Agent=keep
+        Cf-Ipcountry: keep          # behind Cloudflare: the visitor's country, for Shield
 
 # traefik.toml equivalent:
 #
@@ -27,3 +32,6 @@ accessLog:
 #   [accessLog]
 #     filePath = "/logs/access.log"
 #     format = "json"
+#   [accessLog.fields.headers.names]
+#     "User-Agent" = "keep"
+#     "Cf-Ipcountry" = "keep"

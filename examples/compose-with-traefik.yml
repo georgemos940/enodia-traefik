@@ -26,6 +26,8 @@ services:
       - --accesslog=true
       - --accesslog.format=json
       - --accesslog.filepath=/logs/access.log
+      - --accesslog.fields.headers.names.User-Agent=keep
+      - --accesslog.fields.headers.names.Cf-Ipcountry=keep
     ports:
       - "80:80"
       - "443:443"

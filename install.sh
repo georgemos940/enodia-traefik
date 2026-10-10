@@ -209,9 +209,39 @@ write_env() {
     say "ENODIA_INSTALL=script"
     if [ "$MODE" = "node" ]; then say "ENODIA_DATA_DIR=${DIR}/data"; fi
     if [ "$MODE" = "node" ] || [ "$MODE" = "host" ]; then say "PORT=${PORT}"; say "HOST=127.0.0.1"; fi
+    if [ -n "${CS_KEY:-}" ]; then say "CROWDSEC_LAPI_URL=${CS_URL}"; say "CROWDSEC_BOUNCER_KEY=${CS_KEY}"; fi
   } > "$DIR/.env"
   chmod 600 "$DIR/.env"
-  printf 'MODE=%s\n' "$MODE" > "$DIR/.enodia-install"
+  { printf 'MODE=%s\n' "$MODE"; if [ -n "${CS_KEY:-}" ]; then printf 'CROWDSEC=%s\nBOUNCER=%s\n' "$CS_CONTAINER" "$CS_BOUNCER"; fi; } > "$DIR/.enodia-install"
+}
+
+# CrowdSec next to Traefik: with a bouncer key of its own Enodia shows who is banned. A bouncer key
+# can only read decisions; the installer asks before creating one.
+find_crowdsec() {
+  local net port
+  CS_KEY=""; CS_URL=""; CS_NETWORK=""; CS_BOUNCER=""
+  CS_CONTAINER="$(docker ps --format '{{.Names}}\t{{.Image}}' | awk -F'\t' 'tolower($2) ~ /crowdsecurity\/crowdsec(:|@|$)/ { print $1; exit }')"
+  [ -n "$CS_CONTAINER" ] || return 0
+  ok "CrowdSec container: ${B}${CS_CONTAINER}${N}"
+  if [ "$MODE" = "host" ]; then
+    port="$(docker port "$CS_CONTAINER" 8080/tcp 2>/dev/null | head -n1 | sed 's/.*://')"
+    if [ -z "$port" ]; then note "Its API is not published on this machine, so Enodia on the host network cannot read its bans."; return 0; fi
+    CS_URL="http://127.0.0.1:${port}"
+  else
+    net="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$CS_CONTAINER" | grep -vE '^(host|none|bridge)$' | head -n1 || true)"
+    if [ -z "$net" ]; then note "CrowdSec is only on Docker's default network: put it on a named network to show its bans in Enodia."; return 0; fi
+    [ "$net" = "$NETWORK" ] || CS_NETWORK="$net"
+    CS_URL="http://${CS_CONTAINER}:8080"
+  fi
+  yes_no "Show CrowdSec's bans in Enodia? (adds a read-only bouncer key)" y || { CS_URL=""; CS_NETWORK=""; return 0; }
+  CS_BOUNCER="enodia-$(random 6 | tr 'A-Z' 'a-z')"
+  CS_KEY="$(docker exec "$CS_CONTAINER" cscli bouncers add "$CS_BOUNCER" -o raw 2>/dev/null | tail -n1 | tr -d '\r[:space:]')"
+  if [ -z "$CS_KEY" ]; then
+    warn "Could not create a bouncer key. By hand: docker exec ${CS_CONTAINER} cscli bouncers add enodia"
+    CS_URL=""; CS_NETWORK=""; CS_BOUNCER=""
+    return 0
+  fi
+  ok "Bouncer key ${CS_BOUNCER} created; Enodia reads ${CS_URL}"
 }
 
 router_labels() { # indent
@@ -266,7 +296,7 @@ compose_enodia() {
     say "    network_mode: host"
     return
   fi
-  say "    networks: [traefik]"
+  if [ -n "${CS_NETWORK:-}" ]; then say "    networks: [traefik, crowdsec]"; else say "    networks: [traefik]"; fi
   if [ "$ROUTE" = "labels" ]; then
     say "    labels:"
     router_labels "      "
@@ -284,6 +314,7 @@ write_compose_existing() {
     compose_enodia
     if [ "$MODE" != "host" ]; then
       say ""; say "networks:"; say "  traefik:"; say "    name: ${NETWORK}"; say "    external: true"
+      if [ -n "${CS_NETWORK:-}" ]; then say "  crowdsec:"; say "    name: ${CS_NETWORK}"; say "    external: true"; fi
     fi
     say ""; say "volumes:"; say "  enodia-data:"
     if [ -n "${LOG_VOLUME:-}" ]; then say "  traefik-logs:"; say "    name: ${LOG_VOLUME}"; say "    external: true"; fi
@@ -320,6 +351,8 @@ write_compose_stack() {
     say "      - --accesslog=true"
     say "      - --accesslog.format=json"
     say "      - --accesslog.filepath=/logs/access.log"
+    say "      - --accesslog.fields.headers.names.User-Agent=keep"
+    say "      - --accesslog.fields.headers.names.Cf-Ipcountry=keep"
     say "    ports:"
     say "      - \"80:80\""
     say "      - \"443:443\""
@@ -523,6 +556,9 @@ install_docker() {
   API_URL="${TRAEFIK_API_URL:-http://traefik:8080}"
   RESOLVER="${RESOLVERS%%,*}"
   if [ "$MODE" != "stack" ]; then traefik_report; fi
+
+  CS_KEY=""; CS_NETWORK=""
+  if [ "$MODE" = "docker" ] || [ "$MODE" = "host" ]; then find_crowdsec; fi
 
   say ""
   common_questions 1
@@ -741,6 +777,10 @@ uninstall() {
       if [ -n "$PURGE" ]; then dc down -v; else dc down; fi
       ;;
   esac
+  local cs bouncer
+  cs="$(sed -n 's/^CROWDSEC=//p' "$DIR/.enodia-install" 2>/dev/null | head -n1)"
+  bouncer="$(sed -n 's/^BOUNCER=//p' "$DIR/.enodia-install" 2>/dev/null | head -n1)"
+  if [ -n "$cs" ] && [ -n "$bouncer" ] && docker exec "$cs" cscli bouncers delete "$bouncer" >/dev/null 2>&1; then ok "Removed the CrowdSec bouncer key ${bouncer}"; fi
   if [ -n "$PURGE" ] && [ "$MODE" != "stack" ]; then rm -rf "$DIR"; ok "Removed Enodia, its settings and its history."
   elif [ -n "$PURGE" ]; then ok "Enodia and its history removed. ${DIR} stays, since it runs Traefik."
   else ok "Enodia removed. Settings stay in ${DIR}; --purge deletes them too."; fi
