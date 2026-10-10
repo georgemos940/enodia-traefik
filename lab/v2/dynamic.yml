@@ -1,0 +1,29 @@
+http:
+  routers:
+    shop:
+      rule: "Host(`shop.localhost`, `www.shop.localhost`)"
+      entryPoints: [web]
+      service: shop
+      middlewares: [office, headers]
+    api:
+      rule: "Host(`api.localhost`) && PathPrefix(`/v1`, `/v2`)"
+      entryPoints: [web]
+      service: api
+  middlewares:
+    office:
+      ipWhiteList:
+        sourceRange: ["127.0.0.1/32"]
+    headers:
+      headers:
+        frameDeny: true
+        stsSeconds: 31536000
+  services:
+    shop:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:9101"
+          - url: "http://127.0.0.1:9102"
+    api:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:9103"

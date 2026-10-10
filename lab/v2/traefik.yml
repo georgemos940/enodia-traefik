@@ -1,0 +1,25 @@
+# Traefik v2 compatibility check: the same backends as the main lab, v2 syntax, other ports.
+#   traefik --configFile=lab/v2/traefik.yml   (run from the lab/v2 folder)
+entryPoints:
+  web:
+    address: ":8181"
+  traefik:
+    address: ":8190"
+  metrics:
+    address: ":8192"
+
+api:
+  insecure: true
+
+metrics:
+  prometheus:
+    entryPoint: metrics
+    addRoutersLabels: true
+
+accessLog:
+  filePath: "./access.log"
+  format: json
+
+providers:
+  file:
+    filename: "./dynamic.yml"
