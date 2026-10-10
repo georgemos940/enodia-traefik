@@ -1,0 +1,55 @@
+# Enodia next to an existing Traefik.
+#
+# What Traefik needs (static configuration, e.g. command flags):
+#   --api=true                                   the API Enodia reads (no need to publish it)
+#   --metrics.prometheus=true                    live traffic
+#   --metrics.prometheus.addRoutersLabels=true   traffic per router
+#   --metrics.prometheus.entryPoint=traefik      metrics on the internal :8080 entry point
+#   --accesslog=true --accesslog.format=json --accesslog.filepath=/logs/access.log
+#
+# Enodia reaches the API over the shared network on Traefik's internal "traefik" entry point
+# (:8080, enabled by --api.insecure=true). Keep port 8080 unpublished, or bound to 127.0.0.1.
+
+services:
+  traefik:
+    image: traefik:v3.6
+    command:
+      - --api.insecure=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --metrics.prometheus=true
+      - --metrics.prometheus.addRoutersLabels=true
+      - --metrics.prometheus.entryPoint=traefik
+      - --accesslog=true
+      - --accesslog.format=json
+      - --accesslog.filepath=/logs/access.log
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-logs:/logs
+
+  enodia:
+    image: ghcr.io/georgemos940/enodia:latest
+    restart: unless-stopped
+    environment:
+      TRAEFIK_API_URL: http://traefik:8080
+      TRAEFIK_ACCESS_LOG: /logs/access.log
+      ENODIA_PASSWORD: change-me          # or remove it and protect the route below with your own middleware
+      ENODIA_INSTANCE_NAME: production
+    volumes:
+      - traefik-logs:/logs:ro
+      - enodia-data:/data
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.enodia.rule=Host(`enodia.example.com`)
+      - traefik.http.routers.enodia.entrypoints=websecure
+      - traefik.http.routers.enodia.tls=true
+      - traefik.http.services.enodia.loadbalancer.server.port=3000
+
+volumes:
+  traefik-logs:
+  enodia-data:

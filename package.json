@@ -12,7 +12,7 @@
   "scripts": {
     "start": "node server/index.mjs",
     "dev": "node --watch server/index.mjs",
-    "test": "node --test test/",
+    "test": "node --test",
     "lab": "node lab/run.mjs"
   }
 }
