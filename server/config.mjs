@@ -71,4 +71,19 @@ export const config = {
 
   // a friendly name for this Traefik in the header
   instanceName: env.ENODIA_INSTANCE_NAME || '',
+
+  shield: {
+    // req/s that always counts as an attack; unset = worked out from this Traefik's own normal traffic
+    attackRps: num(env.ENODIA_ATTACK_RPS, 0, 0),
+    // tell the webhook when an attack starts and ends
+    alerts: env.ENODIA_ATTACK_ALERTS !== 'false',
+  },
+
+  // CrowdSec's Local API, read with a bouncer key of Enodia's own (cscli bouncers add enodia)
+  crowdsec: {
+    url: trimSlash(env.CROWDSEC_LAPI_URL || ''),
+    key: env.CROWDSEC_BOUNCER_KEY || '',
+    insecureTls: env.CROWDSEC_INSECURE_TLS === 'true',
+    pollSeconds: num(env.CROWDSEC_POLL_SECONDS, 10, 2),
+  },
 };

@@ -3,6 +3,7 @@
 import { config } from './config.mjs';
 import { state } from './traefik.mjs';
 import { metrics, top } from './metrics.mjs';
+import { shieldFindings } from './shield.mjs';
 
 const SEV = { critical: 3, warning: 2, info: 1 };
 const hostsOf = (rule = '') => [...rule.matchAll(/Host(?:SNI)?\(([^)]*)\)/g)].flatMap((m) => [...m[1].matchAll(/`([^`]*)`/g)].map((x) => x[1].toLowerCase()));
@@ -244,6 +245,7 @@ function tlsFindings() {
       { kind: 'http-middleware', name },
       'Add stsSeconds=31536000 to the middleware, and stsIncludeSubdomains=true once every subdomain serves HTTPS.'));
   }
+  out.push(...shieldFindings());
   return out;
 }
 

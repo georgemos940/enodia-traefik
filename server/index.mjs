@@ -1,6 +1,5 @@
 // Enodia: a dashboard for Traefik. One process, no dependencies, no database.
 import http from 'node:http';
-import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,6 +11,9 @@ import { diagnose, healthScore } from './diagnostics.mjs';
 import { authMode, whoIs, login, logoutCookie, tooManyAttempts } from './auth.mjs';
 import { get } from './http.mjs';
 import { updates, onUpdate, startUpdateChecks, checkNow } from './updates.mjs';
+import { startShield, shieldSnapshot, shieldSource, shieldAttack } from './shield.mjs';
+import { crowdsec, startCrowdsec } from './crowdsec.mjs';
+import { postWebhook } from './webhook.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.resolve(here, '..', 'public');
@@ -35,13 +37,7 @@ function notify(list) {
   for (const f of list) if (f.severity === 'critical') notified.add(f.id);
   for (const id of [...notified]) if (!list.some((f) => f.id === id)) notified.delete(id);
   if (!fresh.length) return;
-  const text = fresh.map((f) => `• ${f.title}${f.detail ? ` - ${f.detail}` : ''}`).join('\n').slice(0, 1900);
-  const name = config.instanceName || 'Traefik';
-  const body = JSON.stringify({ content: `**Enodia · ${name}**\n${text}`, text: `Enodia · ${name}\n${text}` });
-  const u = new URL(config.webhookUrl);
-  const req = (u.protocol === 'https:' ? https : http).request(u, { method: 'POST', headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) } });
-  req.on('error', (e) => console.error('[enodia] webhook failed:', e.message));
-  req.end(body);
+  postWebhook(fresh.map((f) => `• ${f.title}${f.detail ? ` - ${f.detail}` : ''}`).join('\n').slice(0, 1900));
 }
 function refreshFindings() {
   findings = diagnose();
@@ -99,6 +95,7 @@ function meta() {
       persistentHistory: Boolean(config.dataDir),
       webhook: Boolean(config.webhookUrl),
       updateCheck: updates.enabled,
+      crowdsec: crowdsec.enabled,
     },
     install: updates.installMethod,
     updates,
@@ -200,6 +197,12 @@ async function api(req, res, url) {
       const limit = Math.min(1000, num(q.get('limit'), 200));
       return send(res, 200, { persistent: Boolean(config.dataDir), events: history.slice(-limit).reverse() });
     }
+    case '/api/shield': return send(res, 200, shieldSnapshot());
+    case '/api/shield/source': return send(res, 200, { ...shieldSource(q.get('ip') ?? ''), log: logs.enabled ? query({ client: q.get('ip') ?? '', limit: 60 }) : [] });
+    case '/api/shield/attack': {
+      const a = shieldAttack(q.get('id'));
+      return a ? send(res, 200, a) : send(res, 404, { error: 'No such attack' });
+    }
     case '/api/diagnostics': return send(res, 200, { findings, score: healthScore(findings) });
     // ?check=1 asks GitHub right away instead of waiting for the next scheduled check
     case '/api/update': return send(res, 200, q.get('check') ? await checkNow() : updates);
@@ -245,6 +248,8 @@ const server = http.createServer(async (req, res) => {
 
 startPolling();
 startTailing();
+startCrowdsec();
+startShield(broadcast);
 setTimeout(scrapeLoop, 1500);
 startUpdateChecks();
 onUpdate((u) => broadcast('update', u));

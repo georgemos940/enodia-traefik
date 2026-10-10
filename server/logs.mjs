@@ -57,6 +57,8 @@ export function normalize(o) {
     tls: o.TLSVersion ?? null,
     ua,
     referer: o.request_Referer ?? null,
+    // Cloudflare's country code, when Traefik keeps that header (accessLog.fields.headers.names.Cf-Ipcountry=keep)
+    country: o['request_Cf-Ipcountry'] ?? o['request_CF-IPCountry'] ?? o['request_Cf-IPCountry'] ?? null,
   };
 }
 

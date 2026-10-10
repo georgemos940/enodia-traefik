@@ -8,15 +8,16 @@ const insecureAgent = new https.Agent({ rejectUnauthorized: false, keepAlive: tr
 const keepHttp = new http.Agent({ keepAlive: true });
 const keepHttps = new https.Agent({ keepAlive: true });
 
-export function get(url, { timeoutMs = config.traefik.timeoutMs, accept = 'application/json' } = {}) {
+// Traefik's credentials and headers go only to Traefik: anything else passes traefik: false.
+export function get(url, { timeoutMs = config.traefik.timeoutMs, accept = 'application/json', traefik = true, headers: extra = {}, insecureTls = config.traefik.insecureTls } = {}) {
   return new Promise((resolve, reject) => {
     const u = new URL(url);
     const lib = u.protocol === 'https:' ? https : http;
-    const headers = { Accept: accept, 'User-Agent': 'enodia', ...config.traefik.headers };
-    if (config.traefik.username) {
+    const headers = { Accept: accept, 'User-Agent': 'enodia', ...(traefik ? config.traefik.headers : {}), ...extra };
+    if (traefik && config.traefik.username) {
       headers.Authorization = 'Basic ' + Buffer.from(`${config.traefik.username}:${config.traefik.password}`).toString('base64');
     }
-    const agent = u.protocol === 'https:' ? (config.traefik.insecureTls ? insecureAgent : keepHttps) : keepHttp;
+    const agent = u.protocol === 'https:' ? (insecureTls ? insecureAgent : keepHttps) : keepHttp;
     const started = Date.now();
     const req = lib.get(u, { headers, agent, timeout: timeoutMs }, (res) => {
       const chunks = [];
