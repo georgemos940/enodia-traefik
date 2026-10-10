@@ -20,3 +20,19 @@ jobs:
         run: for f in server/*.mjs public/*.js public/lib/*.js public/pages/*.js; do node --check "$f"; done
       - name: Tests
         run: npm test
+
+  installer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax and lint
+        run: |
+          bash -n install.sh
+          shellcheck -S error install.sh
+      - name: Detector against a real Traefik
+        run: |
+          docker run -d --name traefik -p 8080:8080 traefik:v3.6 --api.insecure=true --metrics.prometheus=true --accesslog=true
+          for i in $(seq 1 20); do curl -fs http://127.0.0.1:8080/api/version && break; sleep 1; done
+          out="$(node server/detect.mjs 127.0.0.1)"; echo "$out"
+          echo "$out" | grep -q "^DETECT_OK='1'$"
+          echo "$out" | grep -q "^METRICS_URL='http://127.0.0.1:8080/metrics'$"

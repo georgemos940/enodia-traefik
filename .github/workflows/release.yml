@@ -1,0 +1,31 @@
+name: Release
+
+# A v1.2.3 tag becomes a GitHub release. Its notes are that version's section of CHANGELOG.md,
+# which is what the update notice inside Enodia shows.
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag matches package.json
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          [ "v${version}" = "${GITHUB_REF_NAME}" ] || { echo "::error::tag ${GITHUB_REF_NAME} but package.json says ${version}"; exit 1; }
+      - name: Notes from CHANGELOG.md
+        run: |
+          awk -v v="${GITHUB_REF_NAME#v}" '
+            /^## / { if (found) exit; if (index($0, "[" v "]") || $2 == v) { found = 1; next } }
+            found' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "See the [changelog](https://github.com/${GITHUB_REPOSITORY}/blob/main/CHANGELOG.md)." > notes.md
+          cat notes.md
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" --title "Enodia ${GITHUB_REF_NAME#v}" --notes-file notes.md --verify-tag
