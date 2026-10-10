@@ -2,7 +2,8 @@
 // store.state / store.metrics / store.findings and subscribe with store.on(event, fn).
 //
 // Events: 'state' (Traefik config changed), 'metrics' (every scrape), 'logs' (new access-log lines),
-// 'history' (configuration changes), 'diagnostics', 'connection' (stream up/down), 'any'.
+// 'history' (configuration changes), 'diagnostics', 'shield' (every second: sources, level, attack),
+// 'connection' (stream up/down), 'any'.
 
 const listeners = new Map();
 
@@ -14,6 +15,7 @@ export const store = {
   score: null,
   logs: [],               // recent access-log entries, oldest first
   history: [],            // configuration changes this session, newest first
+  shield: null,           // the latest Shield tick
   connected: false,
   lastMessageAt: 0,
 
@@ -68,6 +70,7 @@ export function connect() {
     store.emit('diagnostics', { findings: store.findings, score: store.score });
     store.emit('ready');
   });
+  source.addEventListener('shield', (e) => { store.shield = JSON.parse(e.data); touch(); store.emit('shield', store.shield); });
   source.addEventListener('state', (e) => { store.state = JSON.parse(e.data); touch(); store.emit('state', store.state); });
   source.addEventListener('update', (e) => { const u = JSON.parse(e.data); if (store.meta) store.meta.updates = u; store.emit('update', u); });
   source.addEventListener('metrics', (e) => { store.metrics = JSON.parse(e.data); touch(); store.emit('metrics', store.metrics); });

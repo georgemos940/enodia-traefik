@@ -27,7 +27,7 @@ const kindOf = (f) => f.id.split(':')[0];
 
 export function areaOf(f) {
   const k = kindOf(f);
-  if (k === 'errors' || k === 'slow') return 'traffic';
+  if (k === 'errors' || k === 'slow' || k === 'attack') return 'traffic';
   if (k.startsWith('cert')) return 'certificates';
   const rk = f.resource?.kind ?? '';
   if (rk.endsWith('router')) return 'routers';

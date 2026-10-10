@@ -71,6 +71,7 @@ function counts() {
     certificates: store.metrics?.certs?.warn ? [store.metrics.certs.warn, store.metrics.certs.critical ? 'bad' : 'warn'] : [store.metrics?.certs?.total || undefined, ''],
     health: crit ? [crit, 'bad'] : warn ? [warn, 'warn'] : [0, ''],
     changes: [store.history.length || undefined, ''],
+    shield: store.shield?.level === 'attack' ? ['!', 'bad'] : store.shield?.level === 'elevated' ? ['!', 'warn'] : [undefined, ''],
   };
 }
 
@@ -99,6 +100,14 @@ function renderLive() {
   if (!livePill) return;
   const total = store.metrics?.latest?.total;
   const ok = store.connected && store.state?.ok;
+  const attack = ok && store.shield?.level === 'attack';
+  livePill.classList.toggle('under-attack', attack);
+  livePill.onclick = attack ? () => navigate('#/shield') : null;
+  if (attack) {
+    livePill.replaceChildren(h('span', { class: 'dot bad pulse' }), h('span', { class: 'label' }, 'Under attack'), h('span', { class: 'muted' }, `· ${rate(store.shield.total)} req/s`));
+    livePill.title = 'Open Shield';
+    return;
+  }
   livePill.replaceChildren(
     h('span', { class: `dot ${ok ? 'ok pulse' : store.connected ? 'bad pulse' : 'warn'}` }),
     h('span', { class: 'label' }, !store.connected ? 'Reconnecting…' : !store.state?.ok ? 'Traefik unreachable' : 'Live'),
@@ -320,7 +329,7 @@ function openPalette() {
 
 // ── keys ─────────────────────────────────────────────────────────────────────
 
-const GO = { o: '', r: 'routers', s: 'services', m: 'middlewares', e: 'entrypoints', t: 'traffic', l: 'logs', c: 'certificates', h: 'health', x: 'changes', p: 'topology' };
+const GO = { o: '', r: 'routers', s: 'services', m: 'middlewares', e: 'entrypoints', t: 'traffic', d: 'shield', l: 'logs', c: 'certificates', h: 'health', x: 'changes', p: 'topology' };
 let pendingG = 0;
 document.addEventListener('keydown', (e) => {
   const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || e.target.isContentEditable;
@@ -358,6 +367,11 @@ async function boot() {
     });
     store.on('diagnostics', (d) => { renderNav(); current?.view?.update?.('diagnostics', d); });
     store.on('logs', (d) => current?.view?.update?.('logs', d));
+    let shieldLevel = 'calm';
+    store.on('shield', (d) => {
+      if (d.level !== shieldLevel) { shieldLevel = d.level; renderNav(); renderLive(); }
+      current?.view?.update?.('shield', d);
+    });
     store.on('history', (d) => { renderNav(); current?.view?.update?.('history', d); });
     // charts read colors when drawn, so the page is rebuilt in the new theme
     store.on('theme', () => { if (appEl) { const k = current?.key; current?.view?.destroy?.(); current = null; layout(); if (k) route(); } });

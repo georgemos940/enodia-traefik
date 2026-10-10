@@ -15,6 +15,7 @@ export const PAGES = [
   { id: 'topology', title: 'Topology', icon: 'topology', group: 'Configuration', load: () => import('./topology.js') },
 
   { id: 'traffic', title: 'Live traffic', icon: 'traffic', group: 'Observe', load: () => import('./traffic.js') },
+  { id: 'shield', title: 'Shield', icon: 'shield', group: 'Observe', load: () => import('./shield.js') },
   { id: 'logs', title: 'Access log', icon: 'logs', group: 'Observe', load: () => import('./logs.js') },
   { id: 'certificates', title: 'Certificates', icon: 'cert', group: 'Observe', load: () => import('./certificates.js') },
   { id: 'health', title: 'Health checks', icon: 'health', group: 'Observe', load: () => import('./health.js') },
