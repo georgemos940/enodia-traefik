@@ -1,5 +1,15 @@
 // Every setting comes from the environment, so one image serves every Traefik.
+import fs from 'node:fs';
+
 const env = process.env;
+
+// Docker and Kubernetes secrets: ENODIA_PASSWORD_FILE=/run/secrets/x fills ENODIA_PASSWORD, and so on.
+for (const [key, file] of Object.entries(env)) {
+  const m = key.match(/^((?:ENODIA|TRAEFIK)_\w+)_FILE$/);
+  if (!m || env[m[1]]) continue;
+  try { env[m[1]] = fs.readFileSync(file, 'utf8').replace(/\r?\n$/, ''); }
+  catch (e) { console.error(`[enodia] cannot read ${key} (${file}): ${e.code ?? e.message}`); }
+}
 
 const num = (v, fallback, min = 0) => {
   const n = Number(v);
@@ -18,8 +28,10 @@ export const config = {
   traefik: {
     // the API entry point (api.insecure, or a router to api@internal)
     apiUrl,
-    // the Prometheus metrics endpoint; empty turns live traffic off
-    metricsUrl: env.TRAEFIK_METRICS_URL === undefined ? `${apiUrl}/metrics` : trimSlash(env.TRAEFIK_METRICS_URL),
+    // the Prometheus metrics endpoint; unset = found on its own (the API's /metrics, or the metrics
+    // entry point Traefik reports); "off" turns live traffic off
+    metricsUrl: env.TRAEFIK_METRICS_URL === undefined || env.TRAEFIK_METRICS_URL === 'auto' ? 'auto'
+      : ['', 'off', 'false'].includes(env.TRAEFIK_METRICS_URL) ? '' : trimSlash(env.TRAEFIK_METRICS_URL),
     // optional credentials when the API sits behind basic auth
     username: env.TRAEFIK_API_USERNAME || '',
     password: env.TRAEFIK_API_PASSWORD || '',
@@ -33,8 +45,9 @@ export const config = {
   // how much traffic history is kept in memory, in minutes
   historyMinutes: num(env.ENODIA_HISTORY_MINUTES, 60, 5),
 
-  // a Traefik access log in JSON format, mounted read-only; empty turns the log explorer off
-  accessLog: env.TRAEFIK_ACCESS_LOG || '',
+  // a Traefik access log in JSON format, mounted read-only. Unset = the path from Traefik's own static
+  // configuration, used when the same path is mounted into Enodia; "off" turns the explorer off
+  accessLog: ['off', 'false'].includes(env.TRAEFIK_ACCESS_LOG ?? '') ? '' : env.TRAEFIK_ACCESS_LOG || 'auto',
   accessLogKeep: num(env.ENODIA_LOG_KEEP, 10000, 100),
 
   // where the change history is kept across restarts; empty keeps it in memory only

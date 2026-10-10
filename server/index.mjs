@@ -7,10 +7,11 @@ import { fileURLToPath } from 'node:url';
 import { config } from './config.mjs';
 import { state, history, onChange, startPolling } from './traefik.mjs';
 import { metrics, scrape, seriesFor, seriesKeys, top } from './metrics.mjs';
-import { logs, startTailing, onLines, query, stats, recent } from './logs.mjs';
+import { logs, startTailing, onLines, query, stats, histogram, recent } from './logs.mjs';
 import { diagnose, healthScore } from './diagnostics.mjs';
 import { authMode, whoIs, login, logoutCookie, tooManyAttempts } from './auth.mjs';
 import { get } from './http.mjs';
+import { updates, onUpdate, startUpdateChecks, checkNow } from './updates.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.resolve(here, '..', 'public');
@@ -66,9 +67,16 @@ setInterval(() => {
   pending.length = 0;
 }, 1000).unref();
 
+// for the sidebar: how many certificates expire soon, without sending the list every scrape
+function certSummary() {
+  const now = Date.now(), day = 86400000;
+  const left = metrics.certs.map((c) => (Date.parse(c.notAfter) - now) / day);
+  return { total: left.length, warn: left.filter((d) => d < config.certWarnDays).length, critical: left.filter((d) => d < config.certCriticalDays).length };
+}
+
 async function scrapeLoop() {
   const latest = await scrape();
-  if (latest) broadcast('metrics', { t: Date.now(), latest, gauges: metrics.gauges, totals: metrics.totals });
+  if (latest) broadcast('metrics', { t: Date.now(), latest, gauges: metrics.gauges, totals: metrics.totals, certs: certSummary() });
   refreshFindings();
   setTimeout(scrapeLoop, config.pollSeconds * 1000);
 }
@@ -90,7 +98,10 @@ function meta() {
       logs: logs.enabled,
       persistentHistory: Boolean(config.dataDir),
       webhook: Boolean(config.webhookUrl),
+      updateCheck: updates.enabled,
     },
+    install: updates.installMethod,
+    updates,
     auth: authMode,
     certWarnDays: config.certWarnDays,
     certCriticalDays: config.certCriticalDays,
@@ -142,6 +153,8 @@ const readBody = (req) => new Promise((resolve) => {
 
 const ip = (req) => String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim() || req.socket.remoteAddress || '?';
 const num = (v, d) => (Number.isFinite(Number(v)) && v !== null && v !== '' ? Number(v) : d);
+// the access-log filters every /api/logs* endpoint takes
+const logFilters = (q) => ({ q: q.get('q') ?? '', status: q.get('status') ?? '', router: q.get('router') ?? '', service: q.get('service') ?? '', client: q.get('client') ?? '', host: q.get('host') ?? '', method: q.get('method') ?? '', minMs: num(q.get('minMs'), 0) });
 
 // Only the read-only parts of the Traefik API go through the raw explorer.
 const RAW_ALLOWED = /^\/api\/(overview|version|rawdata|entrypoints(\/[^/]+)?|(http|tcp|udp)\/(routers|services|middlewares)(\/[^/]+)?)$/;
@@ -174,18 +187,22 @@ async function api(req, res, url) {
     }
     case '/api/top': return send(res, 200, { rows: top(q.get('kind') === 'service' ? 'service' : q.get('kind') === 'ep' ? 'ep' : 'router', num(q.get('minutes'), 5), Math.min(100, num(q.get('limit'), 10))) });
     case '/api/logs': {
-      if (!logs.enabled) return send(res, 200, { enabled: false, entries: [] });
+      if (!logs.enabled) return send(res, 200, { enabled: false, auto: logs.auto, entries: [] });
       return send(res, 200, {
-        enabled: true, ok: logs.ok, error: logs.error, format: logs.format, total: logs.total,
-        entries: query({ q: q.get('q') ?? '', status: q.get('status') ?? '', router: q.get('router') ?? '', service: q.get('service') ?? '', client: q.get('client') ?? '', host: q.get('host') ?? '', method: q.get('method') ?? '', minMs: num(q.get('minMs'), 0), before: num(q.get('before'), 0), limit: Math.min(1000, num(q.get('limit'), 200)) }),
+        enabled: true, ok: logs.ok, error: logs.error, format: logs.format, total: logs.total, path: logs.path,
+        entries: query({ ...logFilters(q), before: num(q.get('before'), 0), limit: Math.min(1000, num(q.get('limit'), 200)) }),
       });
     }
-    case '/api/logs/stats': return send(res, 200, logs.enabled ? { enabled: true, ok: logs.ok, error: logs.error, format: logs.format, ...stats({ minutes: num(q.get('minutes'), 0) }) } : { enabled: false });
+    case '/api/logs/stats': return send(res, 200, logs.enabled ? { enabled: true, ok: logs.ok, error: logs.error, format: logs.format, ...stats({ minutes: num(q.get('minutes'), 0), ...logFilters(q) }) } : { enabled: false });
+    // requests over time for the explorer's histogram, by status class, with the same filters as /api/logs
+    case '/api/logs/histogram': return send(res, 200, logs.enabled ? { enabled: true, ...histogram({ buckets: num(q.get('buckets'), 60), minutes: num(q.get('minutes'), 0), ...logFilters(q) }) } : { enabled: false });
     case '/api/history': {
       const limit = Math.min(1000, num(q.get('limit'), 200));
       return send(res, 200, { persistent: Boolean(config.dataDir), events: history.slice(-limit).reverse() });
     }
     case '/api/diagnostics': return send(res, 200, { findings, score: healthScore(findings) });
+    // ?check=1 asks GitHub right away instead of waiting for the next scheduled check
+    case '/api/update': return send(res, 200, q.get('check') ? await checkNow() : updates);
     case '/api/raw': {
       const target = q.get('path') ?? '/api/overview';
       if (!RAW_ALLOWED.test(target.split('?')[0])) return send(res, 400, { error: 'Only the read-only Traefik API paths can be viewed' });
@@ -198,7 +215,7 @@ async function api(req, res, url) {
     }
     case '/api/live': {
       res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
-      res.write(`retry: 3000\nevent: hello\ndata: ${JSON.stringify({ meta: meta(), state: publicState(), findings, score: healthScore(findings), metrics: { t: Date.now(), latest: metrics.latest, gauges: metrics.gauges, totals: metrics.totals }, logs: logs.enabled ? recent(200) : [] })}\n\n`);
+      res.write(`retry: 3000\nevent: hello\ndata: ${JSON.stringify({ meta: meta(), state: publicState(), findings, score: healthScore(findings), metrics: { t: Date.now(), latest: metrics.latest, gauges: metrics.gauges, totals: metrics.totals, certs: certSummary() }, logs: logs.enabled ? recent(200) : [] })}\n\n`);
       clients.add(res);
       const ping = setInterval(() => res.write(': ping\n\n'), 25_000);
       req.on('close', () => { clearInterval(ping); clients.delete(res); });
@@ -229,6 +246,8 @@ const server = http.createServer(async (req, res) => {
 startPolling();
 startTailing();
 setTimeout(scrapeLoop, 1500);
+startUpdateChecks();
+onUpdate((u) => broadcast('update', u));
 
 server.listen(config.port, config.host, () => {
   console.log(`[enodia] ${pkg.version} on http://${config.host}:${config.port}${config.basePath}/  ·  Traefik API ${config.traefik.apiUrl}  ·  auth: ${authMode}`);

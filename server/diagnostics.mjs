@@ -80,6 +80,9 @@ export function diagnose() {
     }
   }
 
+  // ── TLS: certificates, HSTS, passwords over plain HTTP ─────────────────────
+  out.push(...tlsFindings());
+
   // ── services ───────────────────────────────────────────────────────────────
   const referenced = servicesReferenced();
   for (const proto of ['http', 'tcp', 'udp']) {
@@ -99,6 +102,13 @@ export function diagnose() {
       }
       if (s.provider !== 'internal' && (!s.usedBy || s.usedBy.length === 0) && !referenced.has(s.name)) {
         out.push(finding(`service-unused:${s.name}`, 'info', `Service ${s.name} is not used by any router`, 'It is defined but nothing sends traffic to it.', res, 'Remove it, or it is a leftover from an old router.'));
+      }
+      const lb = s.loadBalancer;
+      const servers = lb?.servers?.length ?? 0;
+      if (proto === 'http' && s.provider !== 'internal' && servers >= 2 && !lb.healthCheck && !lb.passiveHealthCheck) {
+        out.push(finding(`no-healthcheck:${s.name}`, 'info', `${s.name} balances ${servers} servers without a health check`,
+          'If one of them stops answering, Traefik keeps sending it its share of the requests and those fail.', res,
+          'Add a health check (loadbalancer.healthcheck.path and interval) so a dead server is taken out of rotation until it recovers.'));
       }
     }
   }
@@ -157,6 +167,84 @@ export function diagnose() {
   }
 
   return out.sort((a, b) => SEV[b.severity] - SEV[a.severity] || a.title.localeCompare(b.title));
+}
+
+const SECURITY_HEADERS = ['frameDeny', 'customFrameOptionsValue', 'contentTypeNosniff', 'browserXssFilter', 'contentSecurityPolicy', 'referrerPolicy', 'permissionsPolicy'];
+
+/** Does a certificate name (possibly *.example.com) cover a host? A wildcard covers one label only. */
+export function sanCovers(san, host) {
+  const s = String(san).toLowerCase();
+  const h = String(host).toLowerCase();
+  if (s === h) return true;
+  if (!s.startsWith('*.')) return false;
+  const dot = h.indexOf('.');
+  return dot > 0 && h.slice(dot + 1) === s.slice(2);
+}
+
+/**
+ * Findings about how HTTPS routers are set up: a host no certificate covers, security headers that
+ * forget HSTS, and basicAuth answered over plain HTTP.
+ */
+function tlsFindings() {
+  const out = [];
+  const mws = new Map(state.http.middlewares.map((m) => [m.name, m]));
+  const eps = new Map(state.entrypoints.map((e) => [e.name, e]));
+  const lookup = (n, provider) => mws.get(n) ?? mws.get(`${n}@${provider}`);
+  // a router's middlewares in order, chains opened up
+  const chainOf = (names, provider, depth = 0) => (names ?? []).flatMap((n) => {
+    const m = lookup(n, provider);
+    if (!m) return [];
+    return m.type === 'chain' && depth < 5 ? chainOf(m.chain?.middlewares, m.provider, depth + 1) : [m];
+  });
+  const certs = metrics.certs;
+  const hsts = new Map(); // headers middleware -> HTTPS routers that get no HSTS from it
+
+  for (const r of state.http.routers) {
+    if (r.provider === 'internal' || r.status === 'disabled') continue;
+    const on = (r.using ?? r.entryPoints ?? []).map((n) => eps.get(n)).filter(Boolean);
+    const tlsEps = r.tls ? on : on.filter((e) => e.http?.tls);
+    const chain = chainOf(r.middlewares, r.provider);
+    const res = { kind: 'http-router', name: r.name };
+
+    // only when Traefik reports its certificates and no resolver would fetch one
+    const resolver = r.tls?.certResolver || tlsEps.some((e) => e.http?.tls?.certResolver);
+    if (certs.length && tlsEps.length && !resolver) {
+      const missing = hostsOf(r.rule).filter((host) => host && !certs.some((c) => [c.cn, ...c.sans].some((san) => san && sanCovers(san, host))));
+      if (missing.length) {
+        out.push(finding(`cert-missing:${r.name}`, 'warning', `No certificate covers ${missing[0]}${missing.length > 1 ? ` and ${missing.length - 1} more` : ''}`,
+          `${r.name} serves ${missing.join(', ')} over HTTPS, but none of the ${certs.length} certificate${certs.length === 1 ? '' : 's'} Traefik holds matches, so clients get the default certificate and a warning.`, res,
+          'Add a certificate for the host (tls.certificates in the file provider), or let a certificate resolver fetch one with tls.certresolver on the router.'));
+      }
+    }
+
+    // basicAuth sends the password with every request, readable on a plain HTTP connection
+    const auth = r.tls ? -1 : chain.findIndex((m) => m.type === 'basicauth');
+    if (auth >= 0 && !chain.slice(0, auth).some((m) => m.type === 'redirectscheme' && (m.redirectScheme?.scheme ?? 'https') === 'https')) {
+      const plain = on.filter((e) => !e.http?.tls && !e.http?.redirections);
+      if (plain.length) {
+        out.push(finding(`auth-plain-http:${r.name}`, 'warning', `${r.name} asks for a password over plain HTTP`,
+          `${chain[auth].name} protects it, but on ${plain.map((e) => e.name).join(', ')} the browser sends the credentials unencrypted with every request.`, res,
+          'Serve the router on a TLS entry point (entrypoints=websecure, tls=true), or redirect HTTP to HTTPS before the basicAuth middleware runs.'));
+      }
+    }
+
+    if (tlsEps.length) {
+      const headers = chain.filter((m) => m.type === 'headers');
+      const securing = headers.filter((m) => SECURITY_HEADERS.some((k) => m.headers?.[k]));
+      if (securing.length && !headers.some((m) => Number(m.headers?.stsSeconds) > 0)) {
+        if (!hsts.has(securing[0].name)) hsts.set(securing[0].name, []);
+        hsts.get(securing[0].name).push(r.name);
+      }
+    }
+  }
+
+  for (const [name, routers] of hsts) {
+    out.push(finding(`hsts:${name}`, 'info', `${name} sets security headers but no HSTS`,
+      `It is used on HTTPS by ${routers.join(', ')} without Strict-Transport-Security, so browsers keep trying plain HTTP first (unless the app sends the header itself).`,
+      { kind: 'http-middleware', name },
+      'Add stsSeconds=31536000 to the middleware, and stsIncludeSubdomains=true once every subdomain serves HTTPS.'));
+  }
+  return out;
 }
 
 /**

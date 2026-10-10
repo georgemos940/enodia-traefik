@@ -3,10 +3,15 @@
 // Only the JSON format carries enough to be useful (router, service, timings), so that is what is read.
 import fs from 'node:fs';
 import { config } from './config.mjs';
+import { state as traefik } from './traefik.mjs';
+
+const auto = config.accessLog === 'auto';
 
 export const logs = {
-  enabled: Boolean(config.accessLog),
-  path: config.accessLog,
+  // in auto mode it turns on once Traefik's own access-log path turns out to be readable here
+  enabled: Boolean(config.accessLog) && !auto,
+  auto,
+  path: auto ? '' : config.accessLog,
   ok: false,
   error: null,
   format: null,       // 'json' | 'clf' | null
@@ -81,11 +86,11 @@ function ingest(text) {
 
 function readMore() {
   try {
-    const st = fs.statSync(config.accessLog);
+    const st = fs.statSync(logs.path);
     if (fd === null || st.ino !== ino || st.size < pos) {
       // first open, a rotated file (new inode) or a truncated one: start over on the current file
       if (fd !== null) try { fs.closeSync(fd); } catch { /* gone already */ }
-      fd = fs.openSync(config.accessLog, 'r');
+      fd = fs.openSync(logs.path, 'r');
       const first = ino === null;
       ino = st.ino;
       // on first start, read only the tail: a 2 GB log is not a startup cost anyone wants
@@ -111,14 +116,31 @@ function readMore() {
     logs.error = null;
   } catch (e) {
     logs.ok = false;
-    logs.error = e.code === 'ENOENT' ? `no file at ${config.accessLog}` : e.message;
+    logs.error = e.code === 'ENOENT' ? `no file at ${logs.path}` : e.message;
   }
 }
 
 export function startTailing() {
-  if (!logs.enabled) return;
-  readMore();
-  setInterval(readMore, 1000).unref();
+  if (!config.accessLog) return;
+  if (!auto) {
+    readMore();
+    setInterval(readMore, 1000).unref();
+    return;
+  }
+  // Auto: Traefik's support dump masks the log path, so the usual places a log directory is mounted
+  // are tried. Mount the directory there (the installer uses /traefik-logs) and the explorer turns on.
+  const tried = ['/traefik-logs/access.log', '/logs/access.log', '/var/log/traefik/access.log', '/var/log/traefik/access.json', '/var/log/access.log'];
+  const look = setInterval(() => {
+    const dumped = traefik.static?.accessLog?.filePath;
+    const p = [...(dumped && dumped !== 'xxxx' ? [dumped] : []), ...tried].find((f) => fs.existsSync(f));
+    if (!p) return;
+    clearInterval(look);
+    logs.path = p;
+    logs.enabled = true;
+    readMore();
+    setInterval(readMore, 1000).unref();
+  }, 5000);
+  look.unref();
 }
 
 // ── querying ─────────────────────────────────────────────────────────────────
@@ -130,32 +152,35 @@ const statusMatch = (want, status) => {
 };
 
 /**
- * Entries newest first, filtered. `q` is a free search over host, path, client, router, service and
- * user agent; the rest are exact.
+ * The explorer's filters as one test. `q` is a free search over host, path, client, router, service
+ * and user agent; the rest are exact.
  */
-export function query({ q = '', status = '', router = '', service = '', client = '', host = '', method = '', minMs = 0, before = 0, limit = 200 } = {}) {
+export function matcher({ q = '', status = '', router = '', service = '', client = '', host = '', method = '', minMs = 0 } = {}) {
   const needle = q.toLowerCase();
+  return (e) => statusMatch(status, e.status)
+    && (!router || e.router === router) && (!service || e.service === service) && (!client || e.client === client)
+    && (!host || e.host === host) && (!method || e.method === method)
+    && (!minMs || e.durationMs >= minMs)
+    && (!needle || [e.host, e.path, e.client, e.router, e.service, e.ua].some((v) => v && v.toLowerCase().includes(needle)));
+}
+
+/** Entries newest first, filtered (see matcher). */
+export function query({ before = 0, limit = 200, ...filters } = {}) {
+  const match = matcher(filters);
   const out = [];
   for (let i = ring.length - 1; i >= 0 && out.length < limit; i--) {
     const e = ring[i];
     if (before && e.id >= before) continue;
-    if (!statusMatch(status, e.status)) continue;
-    if (router && e.router !== router) continue;
-    if (service && e.service !== service) continue;
-    if (client && e.client !== client) continue;
-    if (host && e.host !== host) continue;
-    if (method && e.method !== method) continue;
-    if (minMs && !(e.durationMs >= minMs)) continue;
-    if (needle && ![e.host, e.path, e.client, e.router, e.service, e.ua].some((v) => v && v.toLowerCase().includes(needle))) continue;
-    out.push(e);
+    if (match(e)) out.push(e);
   }
   return out;
 }
 
-/** What the explorer's side panels show: the busiest of everything over the kept window. */
-export function stats({ minutes = 0 } = {}) {
+/** What the explorer's side panels show: the busiest of everything over the kept window, filtered. */
+export function stats({ minutes = 0, ...filters } = {}) {
   const since = minutes ? Date.now() - minutes * 60_000 : 0;
-  const counts = { hosts: new Map(), paths: new Map(), clients: new Map(), routers: new Map(), statuses: new Map(), agents: new Map(), methods: new Map() };
+  const match = matcher(filters);
+  const counts = { hosts: new Map(), paths: new Map(), clients: new Map(), routers: new Map(), services: new Map(), statuses: new Map(), agents: new Map(), methods: new Map() };
   const bump = (m, k, d = 1) => { if (k === null || k === undefined || k === '') return; m.set(k, (m.get(k) ?? 0) + d); };
   let n = 0;
   let errors = 0;
@@ -163,7 +188,9 @@ export function stats({ minutes = 0 } = {}) {
   const durations = [];
   for (const e of ring) {
     if (since && e.t && Date.parse(e.t) < since) continue;
+    if (!match(e)) continue;
     n++;
+    bump(counts.services, e.service);
     bump(counts.hosts, e.host);
     bump(counts.paths, e.path ? `${e.host ?? ''}${e.path.split('?')[0]}` : null);
     bump(counts.clients, e.client);
@@ -188,10 +215,42 @@ export function stats({ minutes = 0 } = {}) {
     oldest: ring[0]?.t ?? null,
     newest: ring[ring.length - 1]?.t ?? null,
     p50: pct(0.5), p95: pct(0.95), p99: pct(0.99),
-    hosts: topOf(counts.hosts), paths: topOf(counts.paths), clients: topOf(counts.clients), routers: topOf(counts.routers),
+    hosts: topOf(counts.hosts), paths: topOf(counts.paths), clients: topOf(counts.clients), routers: topOf(counts.routers), services: topOf(counts.services),
     statuses: topOf(counts.statuses, 20), agents: topOf(counts.agents), methods: topOf(counts.methods),
     slowest: slow,
   };
+}
+
+// bucket widths the histogram picks from, in seconds
+const STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 21600, 43200, 86400];
+
+/**
+ * Requests over time for the explorer's histogram, split by status class and filtered: at most
+ * `buckets` slices of a round width covering the kept window (or the last `minutes`), newest last.
+ */
+export function histogram({ buckets = 60, minutes = 0, ...filters } = {}) {
+  const max = Math.max(10, Math.min(240, buckets));
+  const now = Date.now();
+  const oldest = ring.length ? Date.parse(ring[0].t) : now;
+  const span = minutes ? minutes * 60_000 : Math.max(60_000, now - (Number.isFinite(oldest) ? oldest : now));
+  const step = (STEPS.find((s) => s * 1000 * max >= span) ?? STEPS[STEPS.length - 1]) * 1000;
+  const to = Math.ceil(now / step) * step;
+  const n = Math.min(max, Math.ceil(span / step) + 1);
+  const from = to - n * step;
+  const out = Array.from({ length: n }, (_, i) => ({ t: from + i * step, n: 0, c2: 0, c3: 0, c4: 0, c5: 0 }));
+  const match = matcher(filters);
+  for (let i = ring.length - 1; i >= 0; i--) {
+    const e = ring[i];
+    const t = Date.parse(e.t);
+    if (!Number.isFinite(t)) continue;
+    if (t < from) break;
+    if (!match(e)) continue;
+    const b = out[Math.min(n - 1, Math.floor((t - from) / step))];
+    b.n++;
+    const c = Math.floor(e.status / 100);
+    if (c >= 2 && c <= 5) b[`c${c}`]++;
+  }
+  return { step, from, to, buckets: out };
 }
 
 export const recent = (n = 100) => ring.slice(-n);

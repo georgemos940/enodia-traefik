@@ -14,6 +14,7 @@ const FAMILIES = [
 
 export const metrics = {
   enabled: Boolean(config.traefik.metricsUrl),
+  url: config.traefik.metricsUrl === 'auto' ? null : config.traefik.metricsUrl,
   ok: false,
   error: null,
   scrapedAt: null,
@@ -163,11 +164,47 @@ function internalEntrypoints() {
   return [...out];
 }
 
+// With TRAEFIK_METRICS_URL unset, the endpoint is found: first the API's own address + /metrics (the
+// default when metrics sit on the "traefik" entry point), then the entry point Traefik's static
+// configuration names for Prometheus, on the API's host. Looked for again every few minutes until found.
+let resolvedUrl = config.traefik.metricsUrl === 'auto' ? null : config.traefik.metricsUrl;
+let lastLookup = 0;
+
+function candidates() {
+  const out = [`${config.traefik.apiUrl}/metrics`];
+  const name = traefik.static?.metrics?.prometheus?.entryPoint;
+  const ep = traefik.entrypoints.find((e) => e.name === name) ?? traefik.entrypoints.find((e) => e.name === 'metrics');
+  const port = ep?.address?.match(/:(\d+)(?:\/\w+)?$/)?.[1];
+  if (port) {
+    const u = new URL(config.traefik.apiUrl);
+    u.port = port;
+    out.push(`${u.origin}/metrics`);
+  }
+  return [...new Set(out)];
+}
+
+async function metricsUrl() {
+  if (resolvedUrl) return resolvedUrl;
+  if (Date.now() - lastLookup < 120_000 && lastLookup) throw new Error('no metrics endpoint found yet: enable metrics.prometheus in Traefik, or set TRAEFIK_METRICS_URL');
+  lastLookup = Date.now();
+  for (const url of candidates()) {
+    try {
+      const r = await get(url, { accept: 'text/plain', timeoutMs: 3000 });
+      if (r.status === 200 && r.body.includes('traefik_')) { resolvedUrl = url; metrics.url = url; return url; }
+    } catch { /* try the next one */ }
+  }
+  throw new Error('no metrics endpoint found yet: enable metrics.prometheus in Traefik, or set TRAEFIK_METRICS_URL');
+}
+
 export async function scrape() {
   if (!metrics.enabled) return null;
   try {
-    const r = await get(config.traefik.metricsUrl, { accept: 'text/plain' });
-    if (r.status !== 200) throw new Error(`metrics endpoint answered ${r.status}`);
+    const url = await metricsUrl();
+    const r = await get(url, { accept: 'text/plain' });
+    if (r.status !== 200) {
+      if (config.traefik.metricsUrl === 'auto') resolvedUrl = null; // moved: look for it again
+      throw new Error(`metrics endpoint answered ${r.status}`);
+    }
     metrics.internalEntrypoints = internalEntrypoints();
     const { agg, gauges, certs } = aggregate(parsePrometheus(r.body.toString('utf8')));
     const now = Date.now();
